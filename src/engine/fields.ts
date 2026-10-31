@@ -353,6 +353,22 @@ function findButtonGroups(root: ParentNode, exclude: string): { container: Eleme
   return out;
 }
 
+/**
+ * Cheap, read-only "is there an application form here?" check for passive use
+ * (before you press Fill). Unlike scanFields it never touches the page:
+ * stamping attributes onto inputs while a React/Next.js site is still hydrating
+ * can break the page.
+ */
+export function looksLikeForm(root: ParentNode = document): boolean {
+  if (root.querySelector('input[type="file"]')) return true;
+  const sel = 'input:not([type="hidden"]):not([type="submit"]):not([type="button"]):not([type="reset"]):not([type="image"]):not([type="search"]), select, textarea';
+  let n = 0;
+  for (const el of Array.from(root.querySelectorAll(sel))) {
+    if (!el.closest('.rej-ui') && isVisible(el) && ++n >= 3) return true;
+  }
+  return false;
+}
+
 /** The field an element belongs to (the input itself, a radio in a group, a combobox's inner input…). */
 export function fieldFor(el: Element, fields: Field[] = scanFields()): Field | null {
   const inside = (n: Element) => n === el || n.contains(el);

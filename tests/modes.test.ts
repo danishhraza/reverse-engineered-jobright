@@ -62,3 +62,15 @@ describe('job description', () => {
     expect(Array.from(jd.querySelectorAll('p')).map((p) => p.textContent)).toEqual(['• Built things.', '• Fixed other things.']);
   });
 });
+
+describe('before you press Fill', () => {
+  it('detects a form without changing the page', async () => {
+    const { looksLikeForm } = await import('../src/engine/fields');
+    const before = document.body.innerHTML;
+    expect(looksLikeForm()).toBe(true);
+    expect(document.body.innerHTML).toBe(before);
+    expect(document.querySelector('[data-rej-id]')).toBeNull();
+    document.body.innerHTML = '<input type="search"><a href="/jobs">Jobs</a>';
+    expect(looksLikeForm()).toBe(false);
+  });
+});

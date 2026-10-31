@@ -1,7 +1,8 @@
 import { isKnownAts, pickAdapter } from '../adapters';
 import { resolveProfile } from '../profile/merge';
 import { dataUrlToFile, getLearned, getResume, getSettings, getStore } from '../profile/storage';
-import { scanFields } from '../engine/fields';
+import { looksLikeForm } from '../engine/fields';
+import { sleep, waitForSettle } from '../engine/dom';
 import { focusField, isRunning, run, runSingle } from '../engine/run';
 import type { Answer, FillMode, FillReport } from '../types';
 
@@ -32,9 +33,8 @@ document.addEventListener('pointerdown', noteFocus, true);
 // The last full report, so a single-field fill updates it instead of replacing it.
 let lastReport: FillReport | null = null;
 
-function hasForm(): boolean {
-  return scanFields().filter((f) => f.kind !== 'file').length >= 3 || !!document.querySelector('input[type="file"]');
-}
+// Read-only on purpose: nothing here may change the page until you press Fill.
+const hasForm = () => looksLikeForm();
 
 async function proposeLearned(a: Answer): Promise<void> {
   const prev = (await getLearned()).find((x) => x.pattern === a.pattern);
@@ -183,6 +183,18 @@ async function mountFab(): Promise<void> {
   document.documentElement.appendChild(host);
 }
 
-// Job pages are often SPAs that render the form late.
-setTimeout(mountFab, 1200);
-setTimeout(mountFab, 4000);
+// Only add the button once the page has fully loaded and stopped changing, so a
+// React/Next.js site has finished hydrating; adding nodes before that can break it.
+// Job pages are often SPAs that render the form late, so look once more after that.
+async function mountWhenIdle(): Promise<void> {
+  if (window !== window.top) return;
+  if (document.readyState !== 'complete') await new Promise((r) => window.addEventListener('load', r, { once: true }));
+  for (const delay of [0, 5000]) {
+    await sleep(delay);
+    await waitForSettle(1000, 10000);
+    await new Promise((r) => (window.requestIdleCallback ?? setTimeout)(r, { timeout: 2000 }));
+    await mountFab();
+    if (fab) return;
+  }
+}
+void mountWhenIdle();
