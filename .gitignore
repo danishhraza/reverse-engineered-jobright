@@ -1,0 +1,8 @@
+node_modules/
+dist/
+*.log
+
+# Personal data never goes in the repo. Only profiles/example.json is committed.
+profiles/*
+!profiles/example.json
+*.pdf

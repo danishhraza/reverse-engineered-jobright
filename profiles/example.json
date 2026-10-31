@@ -1,0 +1,84 @@
+{
+  "version": 1,
+  "base": {
+    "personal": {
+      "firstName": "Alex",
+      "lastName": "Example",
+      "preferredFirstName": "Alex",
+      "email": "alex@example.com",
+      "phoneType": "Mobile",
+      "phoneCountry": "US",
+      "phoneCountryCode": "+1",
+      "phone": "(555) 010-0000",
+      "address1": "100 Main Street",
+      "city": "Springfield",
+      "state": "Illinois",
+      "stateCode": "IL",
+      "country": "United States",
+      "postalCode": "62701",
+      "location": "Springfield, IL",
+      "linkedin": "https://www.linkedin.com/in/alex-example",
+      "github": "https://github.com/alex-example"
+    },
+    "education": [
+      {
+        "school": "Example State University",
+        "degree": "Bachelor of Science",
+        "degreeShort": "B.S.",
+        "major": "Computer Science",
+        "gpa": "3.5",
+        "start": { "year": 2019, "month": 8 },
+        "end": { "year": 2023, "month": 5 }
+      }
+    ],
+    "eeo": {
+      "workAuth": { "US": { "authorized": true, "citizen": true, "requiresSponsorship": false } },
+      "gender": "Decline to state",
+      "ethnicity": "Decline to state",
+      "hispanicOrLatino": null,
+      "veteran": null,
+      "disability": null,
+      "over18": true
+    },
+    "preferences": {
+      "salaryMin": 90000,
+      "salaryMax": 110000,
+      "salaryCurrency": "USD",
+      "startAvailability": "Two weeks after offer acceptance",
+      "willingToRelocate": true
+    },
+    "answers": [
+      { "pattern": "require sponsorship", "answer": "No" },
+      { "pattern": "/18 years|over 18/i", "answer": "Yes" }
+    ]
+  },
+  "profiles": [
+    {
+      "id": "swe",
+      "name": "SWE",
+      "resumeFileName": "Alex Example - SWE.pdf",
+      "overrides": {
+        "summary": "Software engineer building web platforms.",
+        "work": [
+          {
+            "company": "Acme Corp",
+            "title": "Software Engineer",
+            "location": "Springfield, IL",
+            "start": { "year": 2023, "month": 6 },
+            "current": true,
+            "bullets": ["Built things.", "Fixed other things."]
+          }
+        ],
+        "skills": ["TypeScript", "React", "Node.js", "SQL"]
+      }
+    },
+    {
+      "id": "product",
+      "name": "Product",
+      "overrides": {
+        "summary": "Engineer moving into product.",
+        "skills": ["user stories", "roadmaps", "SQL"]
+      }
+    }
+  ]
+}

@@ -1,0 +1,47 @@
+:root {
+  --bg: #ffffff;
+  --panel: #f6f7f9;
+  --text: #111827;
+  --muted: #6b7280;
+  --border: #e5e7eb;
+  --accent: #10b981;
+  --accent-ink: #ffffff;
+  --warn: #f59e0b;
+  --warn-bg: #fff7e6;
+  --bad: #ef4444;
+  --focus: #6366f1;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #0f1115;
+    --panel: #181b21;
+    --text: #e5e7eb;
+    --muted: #9ca3af;
+    --border: #2a2e37;
+    --warn-bg: #2a2110;
+  }
+}
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--bg); color: var(--text); font: 13px/1.45 system-ui, -apple-system, Segoe UI, sans-serif; }
+h1 { font-size: 15px; margin: 0; }
+h2 { font-size: 13px; margin: 18px 0 8px; text-transform: uppercase; letter-spacing: .04em; color: var(--muted); }
+a { color: var(--focus); }
+button, select, input[type="file"]::file-selector-button {
+  font: inherit; color: var(--text); background: var(--panel); border: 1px solid var(--border); border-radius: 8px; padding: 7px 10px; cursor: pointer;
+}
+button:hover { border-color: var(--muted); }
+button.primary { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); font-weight: 600; }
+button.primary:disabled { opacity: .6; cursor: default; }
+button.danger { color: var(--bad); }
+select { width: 100%; }
+textarea { width: 100%; font: 12px/1.4 ui-monospace, Consolas, monospace; color: var(--text); background: var(--panel); border: 1px solid var(--border); border-radius: 8px; padding: 10px; }
+label.toggle { display: flex; align-items: center; gap: 8px; padding: 4px 0; color: var(--text); }
+.muted { color: var(--muted); }
+.row { display: flex; gap: 8px; align-items: center; }
+.grow { flex: 1; min-width: 0; }
+.card { background: var(--panel); border: 1px solid var(--border); border-radius: 10px; padding: 12px; }
+.pill { display: inline-block; padding: 1px 8px; border-radius: 999px; font-size: 11px; font-weight: 600; }
+.pill.filled { background: rgba(16,185,129,.15); color: var(--accent); }
+.pill.flagged { background: var(--warn-bg); color: var(--warn); }
+.pill.skipped { background: var(--border); color: var(--muted); }
+.pill.failed { background: rgba(239,68,68,.15); color: var(--bad); }

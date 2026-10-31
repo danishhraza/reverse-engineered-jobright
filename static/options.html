@@ -1,0 +1,54 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Autofill Profiles</title>
+    <link rel="stylesheet" href="ui.css" />
+    <style>
+      body { max-width: 980px; margin: 0 auto; padding: 24px 16px 60px; }
+      .profile { display: grid; grid-template-columns: 1fr auto; gap: 8px 14px; align-items: center; padding: 12px; border: 1px solid var(--border); border-radius: 10px; margin-bottom: 8px; }
+      .profile .name { font-weight: 600; font-size: 14px; }
+      .actions { display: flex; gap: 6px; flex-wrap: wrap; justify-content: flex-end; }
+      #editor { min-height: 460px; }
+      #msg { min-height: 20px; margin-top: 6px; }
+      #msg.err { color: var(--bad); }
+      #msg.ok { color: var(--accent); }
+      table { width: 100%; border-collapse: collapse; }
+      td, th { text-align: left; padding: 6px 8px; border-bottom: 1px solid var(--border); vertical-align: top; overflow-wrap: anywhere; }
+      th { color: var(--muted); font-weight: 500; }
+      @media (max-width: 600px) { .profile { grid-template-columns: 1fr; } .actions { justify-content: flex-start; } }
+    </style>
+  </head>
+  <body>
+    <h1>Autofill profiles</h1>
+    <p class="muted">Everything is stored locally in this browser (chrome.storage). Nothing is sent anywhere.</p>
+
+    <div class="row" style="flex-wrap: wrap">
+      <label class="row"><button id="importBtn">Import profile JSON…</button><input type="file" id="importFile" accept=".json,application/json" hidden /></label>
+      <button id="exportBtn">Export JSON</button>
+    </div>
+
+    <h2>Profiles</h2>
+    <div id="profiles"></div>
+
+    <h2>Settings</h2>
+    <div class="card">
+      <label class="toggle"><input type="checkbox" id="autoAdvance" /> Go to next page automatically on multi-page forms (stops before Submit)</label>
+      <label class="toggle"><input type="checkbox" id="overwrite" /> Overwrite values the site pre-filled (e.g. from its own resume parser)</label>
+      <label class="toggle"><input type="checkbox" id="learn" /> Remember answers I type into flagged fields</label>
+      <label class="toggle"><input type="checkbox" id="showFab" /> Show the floating Autofill button on application pages</label>
+    </div>
+
+    <h2>Learned answers</h2>
+    <p class="muted">Questions you answered by hand on flagged fields. These are reused when the exact same question shows up again.</p>
+    <div id="learned"></div>
+
+    <h2>Edit JSON</h2>
+    <p class="muted"><code>base</code> is shared by every profile; each profile's <code>overrides</code> replaces just what differs (arrays replace, objects merge).</p>
+    <textarea id="editor" spellcheck="false"></textarea>
+    <div class="row"><button id="saveBtn" class="primary">Save JSON</button><span id="msg"></span></div>
+
+    <script src="options.js"></script>
+  </body>
+</html>

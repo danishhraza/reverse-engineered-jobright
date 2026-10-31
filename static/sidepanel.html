@@ -1,0 +1,42 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Autofill</title>
+    <link rel="stylesheet" href="ui.css" />
+    <style>
+      body { padding: 14px; }
+      header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; }
+      #fill { width: 100%; padding: 11px; font-size: 14px; margin: 10px 0 6px; }
+      #status { min-height: 18px; }
+      .field { display: flex; gap: 8px; align-items: flex-start; padding: 8px 10px; border: 1px solid var(--border); border-radius: 8px; margin-bottom: 6px; cursor: pointer; background: var(--bg); }
+      .field:hover { border-color: var(--focus); }
+      .field .lbl { font-weight: 600; overflow-wrap: anywhere; }
+      .field .why { color: var(--muted); font-size: 12px; overflow-wrap: anywhere; }
+      .field .val { font-size: 12px; overflow-wrap: anywhere; }
+      details summary { cursor: pointer; color: var(--muted); margin: 10px 0 6px; }
+      .settings { margin-top: 8px; }
+      .empty { padding: 20px 0; text-align: center; }
+    </style>
+  </head>
+  <body>
+    <header>
+      <h1>Autofill</h1>
+      <a href="#" id="openOptions">Profiles &amp; settings</a>
+    </header>
+    <div class="card">
+      <label class="muted" for="profile">Profile</label>
+      <select id="profile"></select>
+      <div class="settings">
+        <label class="toggle"><input type="checkbox" id="autoAdvance" /> Go to next page automatically (Workday)</label>
+        <label class="toggle"><input type="checkbox" id="overwrite" /> Overwrite values the site pre-filled</label>
+        <label class="toggle"><input type="checkbox" id="learn" /> Remember answers I type into flagged fields</label>
+      </div>
+    </div>
+    <button id="fill" class="primary">Fill this page</button>
+    <div id="status" class="muted"></div>
+    <div id="report"></div>
+    <script src="sidepanel.js"></script>
+  </body>
+</html>
