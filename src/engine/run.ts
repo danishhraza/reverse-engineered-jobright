@@ -1,5 +1,6 @@
 import { pickAdapter } from '../adapters';
 import type { Answer, FieldReport, FillReport, Profile } from '../types';
+import { begin, Cancelled, checkCancel, end, status } from './control';
 import { realClick, sleep, waitFor, waitForSettle } from './dom';
 import { currentValue, fieldFor, findById, scanFields } from './fields';
 import { fillPage, fillSingle } from './fill';
@@ -30,9 +31,12 @@ export async function run(opts: RunOptions): Promise<FillReport> {
   ensureStyles();
   const adapter = pickAdapter();
   let report: FillReport = { url: location.href, ats: adapter.name, page: 1, fields: [], done: false };
+  let rows: FieldReport[] = [];
+  begin((current) => opts.onReport({ ...report, fields: rows, current }));
   try {
     for (let page = 1; page <= MAX_PAGES; page++) {
       report = { url: location.href, ats: adapter.name, page, fields: [], done: false, message: `Filling page ${page}…` };
+      rows = [];
       opts.onReport(report);
       const fields = await fillPage({
         profile: opts.profile,
@@ -40,8 +44,12 @@ export async function run(opts: RunOptions): Promise<FillReport> {
         adapter,
         learned: opts.learned,
         overwrite: opts.overwrite,
-        onProgress: (rows) => opts.onReport({ ...report, fields: rows }),
+        onProgress: (r) => {
+          rows = r;
+          opts.onReport({ ...report, fields: r });
+        },
       });
+      rows = fields;
       report = { ...report, fields };
       highlight(fields);
       if (opts.learn) watchForLearning(fields, opts.onLearn);
@@ -58,6 +66,8 @@ export async function run(opts: RunOptions): Promise<FillReport> {
         report.message = `Stopped on page ${page}: ${blocking.length} required field(s) need you. Fix them, then press Fill again to continue.`;
         break;
       }
+      checkCancel();
+      status(`Page ${page} done — clicking Next and waiting for page ${page + 1}…`);
       const sig = adapter.pageSignature?.() ?? location.href;
       realClick(next);
       const moved = await waitFor(() => (adapter.hasErrors?.() ? 'error' : (adapter.pageSignature?.() ?? location.href) !== sig ? 'moved' : null), {
@@ -71,9 +81,15 @@ export async function run(opts: RunOptions): Promise<FillReport> {
       await waitForSettle(800, 10000);
       opts.onReport({ ...report, done: false, message: `Moving to page ${page + 1}…` });
       await sleep(300);
+      checkCancel();
     }
+  } catch (e) {
+    if (!(e instanceof Cancelled)) throw e;
+    report = { ...report, fields: rows, cancelled: true, message: `Stopped. ${summary(rows)} Anything already filled stays — press Fill to redo it.` };
+    highlight(rows);
   } finally {
     running = false;
+    end();
   }
   report.done = true;
   opts.onReport(report);
@@ -87,6 +103,7 @@ export async function runSingle(opts: Omit<RunOptions, 'autoAdvance' | 'overwrit
   ensureStyles();
   const adapter = pickAdapter();
   const report: FillReport = { url: location.href, ats: adapter.name, page: 1, fields: [], done: true };
+  begin((current) => opts.onReport({ ...report, done: false, current }));
   try {
     const field = fieldFor(target);
     if (!field) {
@@ -102,8 +119,13 @@ export async function runSingle(opts: Omit<RunOptions, 'autoAdvance' | 'overwrit
       highlight(report.fields);
       if (opts.learn) watchForLearning(report.fields, opts.onLearn);
     }
+  } catch (e) {
+    if (!(e instanceof Cancelled)) throw e;
+    report.cancelled = true;
+    report.message = 'Stopped.';
   } finally {
     running = false;
+    end();
   }
   opts.onReport(report);
   return report;

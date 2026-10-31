@@ -71,8 +71,20 @@ chrome.runtime.onMessage.addListener((msg, sender, reply) => {
   }
   if (msg.type === 'report' && sender.tab?.id !== undefined) {
     const report = msg.report as FillReport;
-    chrome.storage.session.set({ [`report:${sender.tab.id}:${sender.frameId ?? 0}`]: report });
+    // Live status lines change many times a second; only store meaningful updates.
+    if (!report.current || report.done) chrome.storage.session.set({ [`report:${sender.tab.id}:${sender.frameId ?? 0}`]: report });
+    // The floating button lives in the top frame, even when an iframe is filling.
+    chrome.tabs.sendMessage(sender.tab.id, { type: 'fabReport', report }, { frameId: 0 }).catch(() => {});
     return;
+  }
+  if (msg.type === 'cancelTab') {
+    const tabId: number | undefined = msg.tabId ?? sender.tab?.id;
+    if (tabId === undefined) return;
+    chrome.webNavigation.getAllFrames({ tabId }).then((frames) => {
+      for (const f of frames ?? [{ frameId: 0 }]) chrome.tabs.sendMessage(tabId, { type: 'cancel' }, { frameId: f.frameId }).catch(() => {});
+      reply({ ok: true });
+    });
+    return true;
   }
   if (msg.type === 'getReports') {
     chrome.storage.session.get(null).then((all) => {

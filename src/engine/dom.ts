@@ -1,6 +1,18 @@
 // Low-level DOM helpers: React-safe value setting, realistic clicks, and waits.
 
-export const sleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
+import { isCancelled } from './control';
+
+/** Resolves early if you press Cancel; the caller's next checkCancel() then stops the fill. */
+export const sleep = (ms: number) =>
+  new Promise<void>((r) => {
+    const t = setTimeout(done, ms);
+    const iv = setInterval(() => isCancelled() && done(), 100);
+    function done() {
+      clearTimeout(t);
+      clearInterval(iv);
+      r();
+    }
+  });
 
 const IS_JSDOM = typeof navigator !== 'undefined' && /jsdom/i.test(navigator.userAgent);
 
@@ -104,6 +116,7 @@ export function waitFor<T>(fn: () => T | null | undefined | false, opts: WaitOpt
     let done = false;
     const check = () => {
       if (done) return;
+      if (isCancelled()) return finish(null);
       let v: T | null | undefined | false;
       try {
         v = fn();
@@ -137,10 +150,12 @@ export function waitForSettle(quiet = 400, max = 5000, root: Node = document): P
       timer = setTimeout(done, quiet);
     });
     obs.observe(root, { childList: true, subtree: true, attributes: true, characterData: true });
+    const iv = setInterval(() => isCancelled() && done(), 100);
     function done() {
       obs.disconnect();
       clearTimeout(timer);
       clearTimeout(hard);
+      clearInterval(iv);
       resolve();
     }
   });

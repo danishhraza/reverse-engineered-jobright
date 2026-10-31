@@ -23,6 +23,12 @@
       .learn .no { color: var(--bad); }
       .field .val { white-space: pre-line; }
       #status { min-height: 18px; }
+      #now { display: flex; align-items: center; gap: 8px; margin: 4px 0 8px; padding: 8px 10px; border: 1px solid var(--focus); border-radius: 8px; }
+      #now[hidden] { display: none; }
+      #now .spin { width: 10px; height: 10px; flex: none; border-radius: 50%; border: 2px solid var(--focus); border-right-color: transparent; animation: spin .8s linear infinite; }
+      #now .txt { flex: 1; min-width: 0; overflow-wrap: anywhere; }
+      #cancel { color: var(--bad); padding: 4px 10px; flex: none; }
+      @keyframes spin { to { transform: rotate(360deg); } }
       .field { display: flex; gap: 8px; align-items: flex-start; padding: 8px 10px; border: 1px solid var(--border); border-radius: 8px; margin-bottom: 6px; cursor: pointer; background: var(--bg); }
       .field:hover { border-color: var(--focus); }
       .field .lbl { font-weight: 600; overflow-wrap: anywhere; }
@@ -52,6 +58,7 @@
       <button id="fillFocused" title="Click into a field on the page first. Shortcut: Alt+Shift+D">Just the field I clicked <kbd>Alt+Shift+D</kbd></button>
     </div>
     <div id="learnBox" class="card" hidden></div>
+    <div id="now" hidden><span class="spin"></span><span class="txt"></span><button id="cancel" title="Stop autofill (anything already filled stays)">Cancel</button></div>
     <div id="status" class="muted"></div>
     <div id="report"></div>
     <script src="sidepanel.js"></script>

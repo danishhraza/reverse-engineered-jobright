@@ -1,6 +1,7 @@
 import type { Adapter, FillContext } from '../adapters/types';
 import type { Answer, FieldReport, Profile } from '../types';
 import { classify, resolve } from './answers';
+import { checkCancel, rethrowCancel, status } from './control';
 import { cleanText, isVisible, realClick, sleep, squash, waitFor, waitForSettle } from './dom';
 import { currentValue, scanFields, stampId, type Field } from './fields';
 import { fillField, MIN_MATCH } from './widgets';
@@ -33,7 +34,9 @@ export async function fillPage(opts: PageFillOptions): Promise<FieldReport[]> {
   const emit = () => opts.onProgress?.([...ctx.extra, ...rows]);
 
   // Some ATSs (SuccessFactors) are still rendering sections when we start.
+  status('Waiting for the page to finish loading…');
   await waitForSettle(400, 3000);
+  checkCancel();
 
   // 1. Resume.
   const initial = scanFields();
@@ -45,9 +48,11 @@ export async function fillPage(opts: PageFillOptions): Promise<FieldReport[]> {
 
   // 2. Adapter-specific sections (Workday work/education entries, etc).
   if (adapter.fillSpecial) {
+    checkCancel();
     try {
       await adapter.fillSpecial(ctx);
     } catch (e) {
+      rethrowCancel(e);
       ctx.extra.push({ id: '', label: `${adapter.name} sections`, status: 'failed', confidence: 0, reason: String(e) });
     }
     emit();
@@ -62,14 +67,17 @@ export async function fillPage(opts: PageFillOptions): Promise<FieldReport[]> {
     if (!fields.length) {
       // Nothing new yet. Sections can render seconds later (SuccessFactors), so
       // keep looking for a while before calling the page done.
+      status('Checking for sections that load late…');
       const until = Date.now() + LATE_FIELDS_MS;
       while (!fields.length && Date.now() < until) {
         await sleep(500);
+        checkCancel();
         fields = fresh();
       }
       if (!fields.length) break;
     }
     for (const f of fields) {
+      checkCancel();
       done.add(f.id);
       if (f.kind === 'file') {
         if (f.required && !currentValue(f)) rows.push(row(f, 'flagged', 0, undefined, 'File upload needed'));
@@ -128,10 +136,14 @@ async function fillOne(f: Field, opts: PageFillOptions): Promise<FieldReport | n
   let last = { ok: false, match: 0, reason: 'Not attempted' } as Awaited<ReturnType<typeof fillField>>;
   // Dropdowns already retry with several queries internally.
   const tries = f.kind === 'combobox' ? 1 : RETRIES;
+  const name = f.label ? `"${f.label.length > 60 ? `${f.label.slice(0, 57)}…` : f.label}"` : 'a field';
   for (let i = 0; i < tries; i++) {
+    checkCancel();
+    status(i ? `Retrying ${name} (try ${i + 1} of ${tries})…` : f.kind === 'combobox' ? `Picking ${name} — waiting for its options…` : `Filling ${name}…`);
     try {
       last = await fillField(f, res.desired, opts.overwrite);
     } catch (e) {
+      rethrowCancel(e);
       last = { ok: false, match: 0, reason: String(e) };
     }
     if (last.ok || (last.match > 0 && last.match < MIN_MATCH)) break; // weak match won't improve by retrying
@@ -173,6 +185,7 @@ async function uploadTo(target: Field, opts: PageFillOptions): Promise<FieldRepo
   if (input.files?.length && input.files[0].name === opts.resume.name) return row(target, 'filled', 1, 'resume', 'Already attached', opts.resume.name);
   if (alreadyUploadedText(input, opts.resume.name) && !opts.overwrite) return row(target, 'skipped', 1, 'resume', 'Resume already uploaded', opts.resume.name);
 
+  status(`Uploading ${opts.resume.name} — waiting for the site to process it…`);
   const dt = new DataTransfer();
   dt.items.add(opts.resume);
   input.files = dt.files;
@@ -227,6 +240,7 @@ function revealButton(): HTMLElement | undefined {
 async function revealResumeInput(adapter: Adapter): Promise<Field | null> {
   const btn = revealButton();
   if (!btn) return null;
+  status('Opening the resume upload…');
   const before = new Set(document.querySelectorAll('input[type="file"]'));
   const block = (e: Event) => {
     if (e.target instanceof HTMLInputElement && e.target.type === 'file') e.preventDefault();

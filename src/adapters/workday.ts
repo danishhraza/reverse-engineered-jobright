@@ -2,6 +2,7 @@ import type { Adapter, FillContext } from './types';
 import type { Education, FieldReport, Work, YearMonth } from '../types';
 import { byText, cleanText, isVisible, realClick, waitFor, waitForSettle } from '../engine/dom';
 import { describeJob } from '../engine/answers';
+import { checkCancel, status } from '../engine/control';
 import { scanFields, type Field } from '../engine/fields';
 import { norm, type Desired } from '../engine/match';
 import { fillField } from '../engine/widgets';
@@ -144,8 +145,10 @@ async function fillRepeatable<T>(ctx: FillContext, title: RegExp, name: string, 
   const container = sectionContainer(title);
   if (!container || !entries.length) return;
   for (let i = 0; i < entries.length; i++) {
+    checkCancel();
     let ps = panels(container, title);
     if (ps.length <= i) {
+      status(`Workday: adding ${name} ${i + 1}…`);
       const add = addButton(container);
       if (!add) break;
       realClick(add);
@@ -162,7 +165,9 @@ async function fillRepeatable<T>(ctx: FillContext, title: RegExp, name: string, 
     // Fill the "currently work here" checkbox first: it hides the end date.
     fields.sort((a, b) => Number(b.kind === 'checkbox') - Number(a.kind === 'checkbox'));
     for (const f of fields) {
+      checkCancel();
       ctx.handled.add(f.id);
+      status(`Workday: ${name} ${i + 1} — ${f.label || 'field'}…`);
       const r = await fillEntryField(ctx, f, `${name} ${i + 1}`, entries[i], resolver);
       if (r) ctx.extra.push(r);
     }
@@ -179,6 +184,8 @@ async function fillSkills(ctx: FillContext): Promise<void> {
   ctx.handled.add(field.id);
   const picked: string[] = [];
   for (const skill of ctx.profile.skills.slice(0, 15)) {
+    checkCancel();
+    status(`Workday: adding skill "${skill}"…`);
     const r = await fillField({ ...field, kind: 'combobox' }, { text: skill }, true);
     if (r.ok && r.match >= 0.85) picked.push(skill);
   }

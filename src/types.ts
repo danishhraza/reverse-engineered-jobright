@@ -180,4 +180,8 @@ export interface FillReport {
   fields: FieldReport[];
   done: boolean;
   message?: string;
+  /** What it's doing right now ("Picking "Country" — waiting for its options…"). */
+  current?: string;
+  /** You pressed Cancel. */
+  cancelled?: boolean;
 }

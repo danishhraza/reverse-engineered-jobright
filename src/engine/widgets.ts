@@ -1,4 +1,5 @@
 import { cleanText, isVisible, pressKey, realClick, setNativeValue, sleep, squash, typeText, waitFor, waitForSettle } from './dom';
+import { checkCancel, isCancelled, status } from './control';
 import { comboboxDisplay, currentValue, type Field } from './fields';
 import { isPlaceholderOption, jaccard, matchOption, norm, type Desired } from './match';
 
@@ -52,6 +53,10 @@ export async function fillField(f: Field, d: Desired, overwrite: boolean): Promi
     case 'file':
       return { ok: false, match: 0, reason: 'File inputs are handled separately' };
   }
+}
+
+function fieldName(f: Field): string {
+  return f.label ? `"${f.label.length > 50 ? `${f.label.slice(0, 47)}…` : f.label}"` : 'Dropdown';
 }
 
 function toIsoDate(s: string): string {
@@ -262,7 +267,12 @@ async function fillCombobox(f: Field, d: Desired, overwrite: boolean): Promise<W
   };
 
   for (let attempt = 0; attempt < queries.length; attempt++) {
+    if (isCancelled()) {
+      closeDropdown(trigger);
+      checkCancel();
+    }
     const query = queries[attempt];
+    if (attempt) status(`${fieldName(f)}: no match yet, trying ${query ? `"${query}"` : 'the full list'} (${attempt + 1} of ${queries.length})…`);
     realClick(trigger);
     if (typable) typeText(typable, query);
 

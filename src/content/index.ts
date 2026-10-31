@@ -2,6 +2,7 @@ import { isKnownAts, pickAdapter } from '../adapters';
 import { resolveProfile } from '../profile/merge';
 import { dataUrlToFile, getLearned, getResume, getSettings, getStore } from '../profile/storage';
 import { looksLikeForm } from '../engine/fields';
+import { cancel } from '../engine/control';
 import { sleep, waitForSettle } from '../engine/dom';
 import { focusField, isRunning, run, runSingle } from '../engine/run';
 import type { Answer, FillMode, FillReport } from '../types';
@@ -13,6 +14,8 @@ type Msg =
   | { type: 'ping' }
   | { type: 'focusInfo' }
   | { type: 'fill'; profileId?: string; mode?: FillMode }
+  | { type: 'cancel' }
+  | { type: 'fabReport'; report: FillReport }
   | { type: 'focus'; id: string };
 
 // The form control you last clicked or tabbed into, for "fill just this field".
@@ -64,16 +67,11 @@ async function startFill(profileId?: string, mode?: FillMode): Promise<{ started
     onReport: (report) => {
       lastReport = report;
       send({ type: 'report', report });
-      if (report.done) {
-        const flagged = report.fields.filter((f) => f.status === 'flagged').length;
-        setFab(flagged ? 'warn' : 'done', flagged ? `${flagged} need you` : 'Done');
-      }
     },
     onLearn: (a) => void proposeLearned(a),
   }).catch((e) => {
     const report: FillReport = { url: location.href, ats: pickAdapter().name, page: 1, fields: [], done: true, message: `Error: ${e?.message ?? e}` };
     send({ type: 'report', report });
-    setFab('warn', 'Error');
   });
   return { started: true };
 }
@@ -94,9 +92,9 @@ async function startSingle(profileId?: string): Promise<{ started: boolean; reas
       onReport: (single) => {
         const ids = new Set(single.fields.map((f) => f.id));
         const merged: FillReport = lastReport
-          ? { ...lastReport, done: true, message: single.message, fields: [...lastReport.fields.filter((f) => !ids.has(f.id)), ...single.fields] }
+          ? { ...lastReport, done: single.done, current: single.current, cancelled: single.cancelled, message: single.message, fields: [...lastReport.fields.filter((f) => !ids.has(f.id)), ...single.fields] }
           : single;
-        lastReport = merged;
+        if (single.done) lastReport = merged;
         send({ type: 'report', report: merged });
       },
       onLearn: (a) => void proposeLearned(a),
@@ -127,6 +125,15 @@ chrome.runtime.onMessage.addListener((msg: Msg, _sender, reply) => {
     startFill(msg.profileId, msg.mode).then(reply);
     return true;
   }
+  if (msg.type === 'cancel') {
+    if (isRunning()) cancel();
+    reply({ ok: true });
+    return;
+  }
+  if (msg.type === 'fabReport') {
+    updateFab(msg.report);
+    return;
+  }
   if (msg.type === 'focus') {
     focusField(msg.id);
     reply({ ok: true });
@@ -141,6 +148,16 @@ function setFab(state: 'idle' | 'busy' | 'done' | 'warn', text: string): void {
   if (!fab) return;
   fab.root.dataset.state = state;
   fab.label.textContent = text;
+  fab.label.title = text;
+}
+
+/** Progress from whichever frame is filling (relayed by the background). */
+function updateFab(r: FillReport): void {
+  if (!r.done) return setFab('busy', r.current ?? r.message ?? 'Filling…');
+  if (r.cancelled) return setFab('warn', 'Stopped');
+  if (/^Error/.test(r.message ?? '')) return setFab('warn', 'Error');
+  const flagged = r.fields.filter((f) => f.status === 'flagged').length;
+  setFab(flagged ? 'warn' : 'done', flagged ? `${flagged} need you` : 'Done');
 }
 
 async function mountFab(): Promise<void> {
@@ -164,21 +181,37 @@ async function mountFab(): Promise<void> {
       .dot { width: 8px; height: 8px; border-radius: 50%; background: #10b981; }
       :host([data-state="busy"]) .dot, button[data-state="busy"] .dot { background: #6366f1; animation: p 1s infinite; }
       button[data-state="warn"] .dot { background: #f59e0b; }
+      .t { max-width: 320px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; line-height: 1.2; }
       .x { opacity: .5; margin-left: 4px; font-weight: 400; }
+      .stop { display: none; margin-left: 4px; padding: 4px 8px; border-radius: 999px; background: #ef4444; font-weight: 600; font-size: 12px; }
+      button[data-state="busy"] .stop { display: inline-block; }
+      button[data-state="busy"] .x { display: none; }
+      button[data-state="busy"] { cursor: default; }
       @keyframes p { 50% { opacity: .3; } }
     </style>
-    <button part="b" data-state="idle"><span class="dot"></span><span class="t">Autofill</span><span class="x" title="Hide">✕</span></button>`;
+    <button part="b" data-state="idle"><span class="dot"></span><span class="t">Autofill</span><span class="stop" title="Stop autofill">■ Stop</span><span class="x" title="Hide">✕</span></button>`;
   const btn = shadow.querySelector('button')!;
   const label = shadow.querySelector('.t') as HTMLElement;
   fab = { root: btn, label };
   btn.addEventListener('click', (e) => {
-    if ((e.target as HTMLElement).classList.contains('x')) {
+    const t = e.target as HTMLElement;
+    if (t.classList.contains('stop')) {
+      setFab('busy', 'Stopping…');
+      send({ type: 'cancelTab' });
+      return;
+    }
+    if (t.classList.contains('x')) {
       host.remove();
       return;
     }
     if (btn.dataset.state === 'busy') return;
-    setFab('busy', 'Filling…');
-    send({ type: 'fillTab' });
+    setFab('busy', 'Starting…');
+    chrome.runtime
+      .sendMessage({ type: 'fillTab' })
+      .then((r: { started: number; reasons: string[] } | undefined) => {
+        if (!r?.started) setFab('warn', r?.reasons.find((x) => !/No form|No content script/.test(x)) ?? 'No form found');
+      })
+      .catch(() => setFab('warn', 'Reload the page'));
   });
   document.documentElement.appendChild(host);
 }

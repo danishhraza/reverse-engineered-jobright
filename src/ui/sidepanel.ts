@@ -6,6 +6,8 @@ const profileSel = $<HTMLSelectElement>('profile');
 const fillBtn = $<HTMLButtonElement>('fill');
 const modeBtns = [$<HTMLButtonElement>('fillEmpty'), $<HTMLButtonElement>('fillFocused')];
 const learnBox = $('learnBox');
+const nowEl = $('now');
+const cancelBtn = $<HTMLButtonElement>('cancel');
 const statusEl = $('status');
 const reportEl = $('report');
 
@@ -45,6 +47,14 @@ function render(): void {
   const all = [...reports.entries()];
   const rows: (FieldReport & { frameId: number })[] = all.flatMap(([frameId, r]) => r.fields.map((f) => ({ ...f, frameId })));
   const busy = all.some(([, r]) => !r.done);
+  nowEl.hidden = !busy;
+  if (busy) {
+    const current = all.filter(([, r]) => !r.done).map(([, r]) => r.current ?? r.message ?? 'Filling…');
+    nowEl.querySelector('.txt')!.textContent = current.join(' · ');
+  } else {
+    cancelBtn.disabled = false;
+    cancelBtn.textContent = 'Cancel';
+  }
   fillBtn.disabled = busy || profileSel.options.length === 0;
   for (const b of modeBtns) b.disabled = fillBtn.disabled;
   fillBtn.textContent = busy ? 'Filling…' : rows.length ? 'Fill again' : 'Fill this page';
@@ -109,6 +119,13 @@ async function startFill(mode: FillMode): Promise<void> {
 }
 
 fillBtn.addEventListener('click', () => startFill('all'));
+cancelBtn.addEventListener('click', async () => {
+  const id = tabId ?? (await currentTab());
+  if (id === undefined) return;
+  cancelBtn.disabled = true;
+  cancelBtn.textContent = 'Stopping…';
+  await chrome.runtime.sendMessage({ type: 'cancelTab', tabId: id });
+});
 $('fillEmpty').addEventListener('click', () => startFill('empty'));
 $('fillFocused').addEventListener('click', () => startFill('focused'));
 
