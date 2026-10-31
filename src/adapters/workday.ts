@@ -1,6 +1,7 @@
 import type { Adapter, FillContext } from './types';
 import type { Education, FieldReport, Work, YearMonth } from '../types';
 import { byText, cleanText, isVisible, realClick, waitFor, waitForSettle } from '../engine/dom';
+import { describeJob } from '../engine/answers';
 import { scanFields, type Field } from '../engine/fields';
 import { norm, type Desired } from '../engine/match';
 import { fillField } from '../engine/widgets';
@@ -79,7 +80,7 @@ const workResolver: EntryResolver<Work> = (f, label, w) => {
     return v ? { text: v } : 'skip';
   }
   if (/description|responsibilit|summary|duties/.test(label)) {
-    const text = w.summary ?? (w.bullets ?? []).map((b) => `• ${b}`).join('\n');
+    const text = describeJob(w);
     return text ? { text } : 'skip';
   }
   return null;
@@ -104,6 +105,41 @@ const eduResolver: EntryResolver<Education> = (f, label, e) => {
   return null;
 };
 
+async function fillEntryField<T>(ctx: FillContext, f: Field, name: string, entry: T, resolver: EntryResolver<T>): Promise<FieldReport | null> {
+  const d = resolver(f, norm(f.label), entry);
+  const rowLabel = `${name}: ${f.label || f.hints}`;
+  if (d === 'skip') return null;
+  if (!d) return f.required ? { id: f.id, label: rowLabel, status: 'flagged', confidence: 0, reason: 'Unknown field in section', required: true } : null;
+  if (!f.el.isConnected) return null; // e.g. end date removed after ticking "currently work here"
+  const r = await fillField(f, d, ctx.overwrite);
+  const conf = 0.9 * r.match;
+  const status: FieldReport['status'] = !r.ok ? 'flagged' : r.skipped ? 'skipped' : conf < 0.75 ? 'flagged' : 'filled';
+  await waitForSettle(150, 800);
+  return { id: f.id, label: rowLabel, status, confidence: Math.round(conf * 100) / 100, value: r.value, reason: r.reason, required: f.required };
+}
+
+/** A field inside "Work Experience N" / "Education N": fill it from entry N. */
+async function fillOneInSection(ctx: FillContext, f: Field): Promise<FieldReport | null | undefined> {
+  const sections = [
+    [/^work experience$/i, 'Work', ctx.profile.work, workResolver],
+    [/^education$/i, 'Education', ctx.profile.education, eduResolver],
+  ] as const;
+  for (const [title, name, entries, resolver] of sections) {
+    const container = sectionContainer(title);
+    if (!container?.contains(f.el)) continue;
+    const i = panels(container, title).findIndex((p) => p.contains(f.el));
+    if (i < 0) return undefined;
+    const entry = entries[i];
+    if (!entry) return { id: f.id, label: `${name} ${i + 1}: ${f.label}`, status: 'flagged', confidence: 0, reason: `Your profile has only ${entries.length} ${name.toLowerCase()} entries` };
+    return fillEntryField(ctx, f, `${name} ${i + 1}`, entry as never, resolver as EntryResolver<unknown>);
+  }
+  if (sectionContainer(/^skills$/i)?.contains(f.el)) {
+    await fillSkills(ctx);
+    return ctx.extra.pop() ?? null;
+  }
+  return undefined;
+}
+
 async function fillRepeatable<T>(ctx: FillContext, title: RegExp, name: string, entries: T[], resolver: EntryResolver<T>): Promise<void> {
   const container = sectionContainer(title);
   if (!container || !entries.length) return;
@@ -127,20 +163,8 @@ async function fillRepeatable<T>(ctx: FillContext, title: RegExp, name: string, 
     fields.sort((a, b) => Number(b.kind === 'checkbox') - Number(a.kind === 'checkbox'));
     for (const f of fields) {
       ctx.handled.add(f.id);
-      const label = norm(f.label);
-      const d = resolver(f, label, entries[i]);
-      const rowLabel = `${name} ${i + 1}: ${f.label || f.hints}`;
-      if (d === 'skip') continue;
-      if (!d) {
-        if (f.required) ctx.extra.push({ id: f.id, label: rowLabel, status: 'flagged', confidence: 0, reason: 'Unknown field in section', required: true });
-        continue;
-      }
-      if (!f.el.isConnected) continue; // e.g. end date removed after ticking "currently work here"
-      const r = await fillField(f, d, ctx.overwrite);
-      const conf = 0.9 * r.match;
-      const status: FieldReport['status'] = !r.ok ? 'flagged' : r.skipped ? 'skipped' : conf < 0.75 ? 'flagged' : 'filled';
-      ctx.extra.push({ id: f.id, label: rowLabel, status, confidence: Math.round(conf * 100) / 100, value: r.value, reason: r.reason, required: f.required });
-      await waitForSettle(150, 800);
+      const r = await fillEntryField(ctx, f, `${name} ${i + 1}`, entries[i], resolver);
+      if (r) ctx.extra.push(r);
     }
   }
   // Leave the generic pass out of these sections entirely.
@@ -190,6 +214,7 @@ export const workday: Adapter = {
     await fillRepeatable(ctx, /^education$/i, 'Education', ctx.profile.education, eduResolver);
     await fillSkills(ctx);
   },
+  fillOne: fillOneInSection,
   nextButton: () =>
     q('[data-automation-id="pageFooterNextButton"], [data-automation-id="bottom-navigation-next-button"]') ??
     byText<HTMLElement>('button', /^(save and continue|next|continue)$/i) ??

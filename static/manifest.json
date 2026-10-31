@@ -22,6 +22,10 @@
     "fill": {
       "suggested_key": { "default": "Alt+Shift+F" },
       "description": "Autofill the current page"
+    },
+    "fill-field": {
+      "suggested_key": { "default": "Alt+Shift+D" },
+      "description": "Autofill only the field you last clicked"
     }
   }
 }

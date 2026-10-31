@@ -86,6 +86,24 @@ export async function fillPage(opts: PageFillOptions): Promise<FieldReport[]> {
   return [...ctx.extra, ...rows];
 }
 
+/**
+ * Fill just one field (the one you clicked). Always overwrites: you asked for it.
+ * Returns null when the field isn't something we know how to answer.
+ */
+export async function fillSingle(f: Field, opts: PageFillOptions): Promise<FieldReport | null> {
+  const o = { ...opts, overwrite: true };
+  if (f.kind === 'file') {
+    if (/cover/i.test(`${f.label} ${f.hints}`)) return row(f, 'flagged', 0, 'coverLetter', 'Cover letter — attach it yourself');
+    return uploadTo(f, o);
+  }
+  if (opts.adapter.fillOne) {
+    const ctx: FillContext = { profile: opts.profile, resume: opts.resume, overwrite: true, handled: new Set(), extra: [] };
+    const r = await opts.adapter.fillOne(ctx, f);
+    if (r !== undefined) return r;
+  }
+  return fillOne(f, o);
+}
+
 function row(f: Field, status: FieldReport['status'], confidence: number, key?: string, reason?: string, value?: string): FieldReport {
   return { id: f.id, label: f.label || '(unlabeled field)', key, status, confidence: Math.round(confidence * 100) / 100, reason, value, required: f.required };
 }
@@ -144,9 +162,11 @@ function findResumeInput(fields: Field[], adapter: Adapter): Field | null {
 }
 
 async function uploadResume(fields: Field[], opts: PageFillOptions): Promise<FieldReport | null> {
-  let target = findResumeInput(fields, opts.adapter);
-  if (!target && opts.resume) target = await revealResumeInput(opts.adapter);
-  if (!target) return null;
+  const target = findResumeInput(fields, opts.adapter) ?? (opts.resume ? await revealResumeInput(opts.adapter) : null);
+  return target ? uploadTo(target, opts) : null;
+}
+
+async function uploadTo(target: Field, opts: PageFillOptions): Promise<FieldReport> {
   if (!/resume|\bcv\b/i.test(target.label)) target = { ...target, label: 'Resume' };
   const input = target.el as HTMLInputElement;
   if (!opts.resume) return row(target, 'flagged', 0, 'resume', 'No resume file saved for this profile — add it in Options');

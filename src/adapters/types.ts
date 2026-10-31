@@ -20,6 +20,8 @@ export interface Adapter {
   waitResumeProcessed?(input: HTMLInputElement, file: File): Promise<boolean>;
   /** Fill things the generic engine can't (repeatable Work/Education sections, skills). */
   fillSpecial?(ctx: FillContext): Promise<void>;
+  /** Fill one field the user picked; undefined = not an adapter field, use the generic engine. */
+  fillOne?(ctx: FillContext, field: Field): Promise<import('../types').FieldReport | null | undefined>;
   /** Multi-page forms. */
   nextButton?(): HTMLElement | null;
   isFinalPage?(): boolean;

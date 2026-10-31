@@ -9,12 +9,25 @@
       body { padding: 14px; }
       header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; }
       #fill { width: 100%; padding: 11px; font-size: 14px; margin: 10px 0 6px; }
+      .modes { display: flex; gap: 6px; margin-bottom: 8px; }
+      .modes button { flex: 1; font-size: 12px; }
+      .modes kbd { font: 11px ui-monospace, Consolas, monospace; color: var(--muted); }
+      #learnBox { margin: 10px 0; border-color: var(--focus); }
+      #learnBox h3 { margin: 0 0 6px; font-size: 13px; }
+      .learn { display: flex; gap: 8px; align-items: flex-start; padding: 6px 0; border-top: 1px solid var(--border); }
+      .learn .q { font-weight: 600; overflow-wrap: anywhere; }
+      .learn .a { overflow-wrap: anywhere; }
+      .learn .prev { color: var(--muted); font-size: 12px; text-decoration: line-through; overflow-wrap: anywhere; }
+      .learn button { padding: 4px 9px; font-size: 14px; line-height: 1; }
+      .learn .yes { color: var(--accent); }
+      .learn .no { color: var(--bad); }
+      .field .val { white-space: pre-line; }
       #status { min-height: 18px; }
       .field { display: flex; gap: 8px; align-items: flex-start; padding: 8px 10px; border: 1px solid var(--border); border-radius: 8px; margin-bottom: 6px; cursor: pointer; background: var(--bg); }
       .field:hover { border-color: var(--focus); }
       .field .lbl { font-weight: 600; overflow-wrap: anywhere; }
       .field .why { color: var(--muted); font-size: 12px; overflow-wrap: anywhere; }
-      .field .val { font-size: 12px; overflow-wrap: anywhere; }
+      .field .val { font-size: 12px; overflow-wrap: anywhere; max-height: 7.5em; overflow: hidden; }
       details summary { cursor: pointer; color: var(--muted); margin: 10px 0 6px; }
       .settings { margin-top: 8px; }
       .empty { padding: 20px 0; text-align: center; }
@@ -30,11 +43,15 @@
       <select id="profile"></select>
       <div class="settings">
         <label class="toggle"><input type="checkbox" id="autoAdvance" /> Go to next page automatically (Workday)</label>
-        <label class="toggle"><input type="checkbox" id="overwrite" /> Overwrite values the site pre-filled</label>
-        <label class="toggle"><input type="checkbox" id="learn" /> Remember answers I type into flagged fields</label>
+        <label class="toggle"><input type="checkbox" id="learn" /> Learn answers I type into flagged fields (asks before saving)</label>
       </div>
     </div>
     <button id="fill" class="primary">Fill this page</button>
+    <div class="modes">
+      <button id="fillEmpty" title="Leave anything already filled (by you or the site's resume parser) alone">Only empty fields</button>
+      <button id="fillFocused" title="Click into a field on the page first. Shortcut: Alt+Shift+D">Just the field I clicked <kbd>Alt+Shift+D</kbd></button>
+    </div>
+    <div id="learnBox" class="card" hidden></div>
     <div id="status" class="muted"></div>
     <div id="report"></div>
     <script src="sidepanel.js"></script>

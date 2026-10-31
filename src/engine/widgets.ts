@@ -1,4 +1,4 @@
-import { cleanText, isVisible, pressKey, realClick, setNativeValue, sleep, typeText, waitFor, waitForSettle } from './dom';
+import { cleanText, isVisible, pressKey, realClick, setNativeValue, sleep, squash, typeText, waitFor, waitForSettle } from './dom';
 import { comboboxDisplay, currentValue, type Field } from './fields';
 import { isPlaceholderOption, jaccard, matchOption, norm, type Desired } from './match';
 
@@ -26,12 +26,18 @@ const OPTION_SEL = [
 ].join(', ');
 
 export async function fillField(f: Field, d: Desired, overwrite: boolean): Promise<WidgetResult> {
+  if (!overwrite && (f.kind === 'checkbox' || f.kind === 'checkboxGroup')) {
+    const cur = currentValue(f);
+    if (cur) return { ok: true, value: cur, match: 1, skipped: true, reason: 'Already filled' };
+  }
   switch (f.kind) {
     case 'text':
     case 'textarea':
       return fillText(f, d.text, overwrite);
     case 'date':
       return fillText(f, toIsoDate(d.text), overwrite);
+    case 'richtext':
+      return fillRichText(f, d.text, overwrite);
     case 'select':
       return fillSelect(f, d, overwrite);
     case 'radio':
@@ -71,6 +77,63 @@ async function fillText(f: Field, value: string, overwrite: boolean): Promise<Wi
   if (digits(value).length >= 7 && digits(now).endsWith(digits(value).slice(-7))) return { ok: true, value: now, match: 0.95 };
   if (el.maxLength > 0 && value.startsWith(now)) return { ok: true, value: now, match: 0.8, reason: `Truncated to ${el.maxLength} chars` };
   return { ok: false, match: 0, reason: `Value did not stick (field shows "${now.slice(0, 40)}")` };
+}
+
+/**
+ * Rich-text editors keep their own document model, so setting innerHTML is
+ * undone on the next keystroke. Paste the text (every major editor handles
+ * paste and keeps the line breaks), then fall back to typing it line by line.
+ */
+async function fillRichText(f: Field, value: string, overwrite: boolean): Promise<WidgetResult> {
+  const el = f.el;
+  const read = () => squash(el.innerText ?? el.textContent ?? '');
+  const want = squash(value);
+  const cur = read();
+  if (cur === want) return { ok: true, value, match: 1 };
+  if (cur && !overwrite) return { ok: true, value: cur, match: 1, skipped: true, reason: 'Already filled' };
+  const lines = value.split('\n');
+  const stuck = () => read().includes(squash(lines[0]).slice(0, 40)) && read().length >= want.length * 0.9;
+
+  el.focus({ preventScroll: true });
+  const selectAll = () => {
+    const sel = window.getSelection();
+    const range = document.createRange();
+    range.selectNodeContents(el);
+    sel?.removeAllRanges();
+    sel?.addRange(range);
+  };
+
+  selectAll();
+  try {
+    const dt = new DataTransfer();
+    dt.setData('text/plain', value);
+    el.dispatchEvent(new ClipboardEvent('paste', { clipboardData: dt, bubbles: true, cancelable: true }));
+  } catch {
+    // No ClipboardEvent constructor (tests).
+  }
+  await sleep(100);
+
+  if (!stuck()) {
+    selectAll();
+    try {
+      lines.forEach((line, i) => {
+        if (i > 0) document.execCommand('insertParagraph');
+        if (line) document.execCommand('insertText', false, line);
+      });
+    } catch {
+      // execCommand unavailable.
+    }
+    await sleep(50);
+  }
+
+  if (!stuck()) {
+    // Last resort for plain contenteditable divs.
+    el.innerHTML = lines.map((l) => `<p>${l.replace(/[&<>]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' })[c]!) || '<br>'}</p>`).join('');
+    el.dispatchEvent(new InputEvent('input', { bubbles: true, inputType: 'insertFromPaste' }));
+  }
+  el.dispatchEvent(new FocusEvent('blur'));
+  el.dispatchEvent(new FocusEvent('focusout', { bubbles: true }));
+  return stuck() ? { ok: true, value, match: 1 } : { ok: false, match: 0, reason: "The text editor didn't accept the text" };
 }
 
 async function fillSelect(f: Field, d: Desired, overwrite: boolean): Promise<WidgetResult> {

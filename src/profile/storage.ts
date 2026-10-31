@@ -1,4 +1,4 @@
-import { DEFAULT_SETTINGS, type Answer, type ProfileStore, type Settings } from '../types';
+import { DEFAULT_SETTINGS, type Answer, type PendingLearn, type ProfileStore, type Settings } from '../types';
 
 // Everything lives in chrome.storage.local (with unlimitedStorage), so content
 // scripts, the side panel and the options page all read the same data.
@@ -40,6 +40,17 @@ export async function getLearned(): Promise<Answer[]> {
 
 export async function setLearned(learned: Answer[]): Promise<void> {
   await chrome.storage.local.set({ learned });
+}
+
+// Learned answers wait in session storage until you approve them in the side panel.
+export async function getPending(): Promise<PendingLearn[]> {
+  const { pendingLearn } = await chrome.storage.session.get('pendingLearn');
+  return (pendingLearn as PendingLearn[] | undefined) ?? [];
+}
+
+export async function setPending(pendingLearn: PendingLearn[]): Promise<void> {
+  await chrome.storage.session.set({ pendingLearn });
+  chrome.action?.setBadgeText({ text: pendingLearn.length ? String(pendingLearn.length) : '' }).catch(() => {});
 }
 
 export async function addLearned(a: Answer): Promise<void> {

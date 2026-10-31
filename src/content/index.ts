@@ -1,21 +1,50 @@
 import { isKnownAts, pickAdapter } from '../adapters';
 import { resolveProfile } from '../profile/merge';
-import { addLearned, dataUrlToFile, getLearned, getResume, getSettings, getStore } from '../profile/storage';
+import { dataUrlToFile, getLearned, getResume, getSettings, getStore } from '../profile/storage';
 import { scanFields } from '../engine/fields';
-import { focusField, isRunning, run } from '../engine/run';
-import type { FillReport } from '../types';
+import { focusField, isRunning, run, runSingle } from '../engine/run';
+import type { Answer, FillMode, FillReport } from '../types';
 
 // Runs in every frame. Fills when the background asks; the top frame also
 // shows a small floating "Autofill" button on application pages.
 
-type Msg = { type: 'ping' } | { type: 'fill'; profileId?: string } | { type: 'focus'; id: string };
+type Msg =
+  | { type: 'ping' }
+  | { type: 'focusInfo' }
+  | { type: 'fill'; profileId?: string; mode?: FillMode }
+  | { type: 'focus'; id: string };
+
+// The form control you last clicked or tabbed into, for "fill just this field".
+let lastFocus: { el: Element; ts: number } | null = null;
+const CONTROL = 'input, select, textarea, button, [role="combobox"], [role="radio"], [role="checkbox"], [role="button"], [role="option"], [contenteditable], label';
+
+function noteFocus(e: Event): void {
+  const t = e.target instanceof Element ? e.target : null;
+  if (!t || t.closest('.rej-ui')) return;
+  const el = t.closest(CONTROL);
+  // A dropdown option belongs to the dropdown you opened, which already has focus.
+  if (!el || el.matches('[role="option"]')) return;
+  lastFocus = { el, ts: Date.now() };
+}
+document.addEventListener('focusin', noteFocus, true);
+document.addEventListener('pointerdown', noteFocus, true);
+
+// The last full report, so a single-field fill updates it instead of replacing it.
+let lastReport: FillReport | null = null;
 
 function hasForm(): boolean {
   return scanFields().filter((f) => f.kind !== 'file').length >= 3 || !!document.querySelector('input[type="file"]');
 }
 
-async function startFill(profileId?: string): Promise<{ started: boolean; reason?: string }> {
+async function proposeLearned(a: Answer): Promise<void> {
+  const prev = (await getLearned()).find((x) => x.pattern === a.pattern);
+  if (prev?.answer === a.answer) return;
+  send({ type: 'learnProposal', answer: a, previous: prev?.answer });
+}
+
+async function startFill(profileId?: string, mode?: FillMode): Promise<{ started: boolean; reason?: string }> {
   if (isRunning()) return { started: false, reason: 'Already filling' };
+  if (mode === 'focused') return startSingle(profileId);
   if (!hasForm()) return { started: false, reason: 'No form in this frame' };
   const [store, settings, learned] = await Promise.all([getStore(), getSettings(), getLearned()]);
   if (!store) return { started: false, reason: 'No profiles yet — import them in Options' };
@@ -29,22 +58,51 @@ async function startFill(profileId?: string): Promise<{ started: boolean; reason
     profile,
     resume,
     learned,
-    overwrite: settings.overwrite,
+    overwrite: mode === 'empty' ? false : mode === 'all' ? true : settings.overwrite,
     autoAdvance: settings.autoAdvance,
     learn: settings.learn,
     onReport: (report) => {
+      lastReport = report;
       send({ type: 'report', report });
       if (report.done) {
         const flagged = report.fields.filter((f) => f.status === 'flagged').length;
         setFab(flagged ? 'warn' : 'done', flagged ? `${flagged} need you` : 'Done');
       }
     },
-    onLearn: (a) => void addLearned(a),
+    onLearn: (a) => void proposeLearned(a),
   }).catch((e) => {
     const report: FillReport = { url: location.href, ats: pickAdapter().name, page: 1, fields: [], done: true, message: `Error: ${e?.message ?? e}` };
     send({ type: 'report', report });
     setFab('warn', 'Error');
   });
+  return { started: true };
+}
+
+async function startSingle(profileId?: string): Promise<{ started: boolean; reason?: string }> {
+  const target = lastFocus?.el;
+  if (!target?.isConnected) return { started: false, reason: 'Click into a field on the page first, then try again.' };
+  const [store, settings, learned] = await Promise.all([getStore(), getSettings(), getLearned()]);
+  if (!store) return { started: false, reason: 'No profiles yet — import them in Options' };
+  const id = profileId ?? settings.activeProfileId ?? store.profiles[0].id;
+  const stored = await getResume(id);
+  runSingle(
+    {
+      profile: resolveProfile(store, id),
+      resume: stored ? dataUrlToFile(stored) : undefined,
+      learned,
+      learn: settings.learn,
+      onReport: (single) => {
+        const ids = new Set(single.fields.map((f) => f.id));
+        const merged: FillReport = lastReport
+          ? { ...lastReport, done: true, message: single.message, fields: [...lastReport.fields.filter((f) => !ids.has(f.id)), ...single.fields] }
+          : single;
+        lastReport = merged;
+        send({ type: 'report', report: merged });
+      },
+      onLearn: (a) => void proposeLearned(a),
+    },
+    target,
+  ).catch((e) => send({ type: 'report', report: { ...(lastReport ?? { url: location.href, ats: pickAdapter().name, page: 1, fields: [] }), done: true, message: `Error: ${e?.message ?? e}` } }));
   return { started: true };
 }
 
@@ -61,8 +119,12 @@ chrome.runtime.onMessage.addListener((msg: Msg, _sender, reply) => {
     reply({ hasForm: hasForm(), ats: pickAdapter().name, top: window === window.top });
     return;
   }
+  if (msg.type === 'focusInfo') {
+    reply({ ts: lastFocus?.el.isConnected ? lastFocus.ts : 0 });
+    return;
+  }
   if (msg.type === 'fill') {
-    startFill(msg.profileId).then(reply);
+    startFill(msg.profileId, msg.mode).then(reply);
     return true;
   }
   if (msg.type === 'focus') {

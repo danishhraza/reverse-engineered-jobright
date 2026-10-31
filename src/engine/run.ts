@@ -1,8 +1,8 @@
 import { pickAdapter } from '../adapters';
 import type { Answer, FieldReport, FillReport, Profile } from '../types';
 import { realClick, sleep, waitFor, waitForSettle } from './dom';
-import { currentValue, findById, scanFields } from './fields';
-import { fillPage } from './fill';
+import { currentValue, fieldFor, findById, scanFields } from './fields';
+import { fillPage, fillSingle } from './fill';
 
 // Multi-page driver + on-page highlighting + learning from manual answers.
 
@@ -76,6 +76,35 @@ export async function run(opts: RunOptions): Promise<FillReport> {
     running = false;
   }
   report.done = true;
+  opts.onReport(report);
+  return report;
+}
+
+/** Fill only the field `target` belongs to (the one you last clicked). */
+export async function runSingle(opts: Omit<RunOptions, 'autoAdvance' | 'overwrite'>, target: Element): Promise<FillReport> {
+  if (running) throw new Error('Already filling this page');
+  running = true;
+  ensureStyles();
+  const adapter = pickAdapter();
+  const report: FillReport = { url: location.href, ats: adapter.name, page: 1, fields: [], done: true };
+  try {
+    const field = fieldFor(target);
+    if (!field) {
+      report.message = "Couldn't find a form field where you clicked. Click into the field, then try again.";
+    } else {
+      const row = await fillSingle(field, { profile: opts.profile, resume: opts.resume, adapter, learned: opts.learned, overwrite: true });
+      report.fields = row ? [row] : [];
+      report.message = !row
+        ? `Nothing to fill for "${field.label || 'this field'}".`
+        : row.status === 'filled'
+          ? `Filled "${row.label}".`
+          : `"${row.label}": ${row.reason ?? row.status}`;
+      highlight(report.fields);
+      if (opts.learn) watchForLearning(report.fields, opts.onLearn);
+    }
+  } finally {
+    running = false;
+  }
   opts.onReport(report);
   return report;
 }

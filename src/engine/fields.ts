@@ -7,6 +7,7 @@ import { cleanText, isVisible, squash } from './dom';
 export type FieldKind =
   | 'text'
   | 'textarea'
+  | 'richtext'
   | 'date'
   | 'select'
   | 'combobox'
@@ -270,6 +271,14 @@ export function scanFields(opts: ScanOptions = {}): Field[] {
     push({ kind, el, rawLabel: labelFor(el), hints: hintsFor(el), inputType: type });
   }
 
+  // Rich-text editors (Quill, Draft.js, ProseMirror, CKEditor) used for descriptions.
+  for (const el of Array.from(root.querySelectorAll<HTMLElement>('[contenteditable="true"], [contenteditable=""], [contenteditable="plaintext-only"]'))) {
+    if (el.closest(exclude) || seen.has(el) || !isVisible(el)) continue;
+    if (el.parentElement?.closest('[contenteditable="true"], [contenteditable=""], [contenteditable="plaintext-only"]')) continue;
+    seen.add(el);
+    push({ kind: 'richtext', el, rawLabel: labelFor(el), hints: hintsFor(el) });
+  }
+
   for (const group of radiosByGroup.values()) {
     const visible = group.filter((r) => isVisible(r) || (r.labels?.[0] && isVisible(r.labels[0])));
     if (!visible.length) continue;
@@ -344,6 +353,23 @@ function findButtonGroups(root: ParentNode, exclude: string): { container: Eleme
   return out;
 }
 
+/** The field an element belongs to (the input itself, a radio in a group, a combobox's inner input…). */
+export function fieldFor(el: Element, fields: Field[] = scanFields()): Field | null {
+  const inside = (n: Element) => n === el || n.contains(el);
+  const direct =
+    fields.find((f) => f.el === el) ??
+    fields.find((f) => f.choices?.some((c) => inside(c.el))) ??
+    fields.find((f) => inside(f.el));
+  if (direct) return direct;
+  // A wrapper you clicked (a radio's <label>, a combobox's outer div) — only if it holds exactly one field.
+  const within = fields.filter((f) => el.contains(f.el) || f.choices?.some((c) => el.contains(c.el)));
+  if (within.length === 1) return within[0];
+  if (within.length > 1) return null;
+  // Same field wrapper (Workday formField-*, Greenhouse .field).
+  const wrap = el.closest('[data-automation-id^="formField-"], .field, .application-question, fieldset');
+  return wrap ? (fields.find((f) => wrap.contains(f.el)) ?? null) : null;
+}
+
 /** Current displayed value of a field, for "already filled?" checks and learning. */
 export function currentValue(f: Field): string {
   const el = f.el;
@@ -352,6 +378,8 @@ export function currentValue(f: Field): string {
     case 'textarea':
     case 'date':
       return (el as HTMLInputElement).value ?? '';
+    case 'richtext':
+      return (el.innerText ?? el.textContent ?? '').trim();
     case 'select': {
       const s = el as HTMLSelectElement;
       const opt = s.selectedOptions?.[0];

@@ -1,9 +1,11 @@
-import { getSettings, getStore, setSettings } from '../profile/storage';
-import type { FieldReport, FillReport, Settings } from '../types';
+import { addLearned, getPending, getSettings, getStore, setPending, setSettings } from '../profile/storage';
+import type { FieldReport, FillMode, FillReport, Settings } from '../types';
 
 const $ = <T extends HTMLElement>(id: string) => document.getElementById(id) as T;
 const profileSel = $<HTMLSelectElement>('profile');
 const fillBtn = $<HTMLButtonElement>('fill');
+const modeBtns = [$<HTMLButtonElement>('fillEmpty'), $<HTMLButtonElement>('fillFocused')];
+const learnBox = $('learnBox');
 const statusEl = $('status');
 const reportEl = $('report');
 
@@ -26,8 +28,8 @@ async function init(): Promise<void> {
     for (const p of store.profiles) profileSel.add(new Option(p.name, p.id, false, p.id === settings.activeProfileId));
     fillBtn.disabled = false;
   }
-  for (const k of ['autoAdvance', 'overwrite', 'learn'] as const) $<HTMLInputElement>(k).checked = settings[k];
-  await loadReports();
+  for (const k of ['autoAdvance', 'learn'] as const) $<HTMLInputElement>(k).checked = settings[k];
+  await Promise.all([loadReports(), renderPending()]);
 }
 
 async function loadReports(): Promise<void> {
@@ -44,6 +46,7 @@ function render(): void {
   const rows: (FieldReport & { frameId: number })[] = all.flatMap(([frameId, r]) => r.fields.map((f) => ({ ...f, frameId })));
   const busy = all.some(([, r]) => !r.done);
   fillBtn.disabled = busy || profileSel.options.length === 0;
+  for (const b of modeBtns) b.disabled = fillBtn.disabled;
   fillBtn.textContent = busy ? 'Filling…' : rows.length ? 'Fill again' : 'Fill this page';
   const messages = all.map(([, r]) => (r.ats !== 'Generic' ? `${r.ats}: ` : '') + (r.message ?? '')).filter((m) => m.trim());
   if (messages.length) statusEl.textContent = messages.join(' · ');
@@ -89,21 +92,55 @@ function rowEl(r: FieldReport & { frameId: number }): HTMLElement {
   return div;
 }
 
-fillBtn.addEventListener('click', async () => {
+async function startFill(mode: FillMode): Promise<void> {
   tabId = await currentTab();
   if (tabId === undefined) return;
-  reports.clear();
-  render();
-  statusEl.textContent = 'Starting…';
-  const res: { frames: number; started: number; reasons: string[] } = await chrome.runtime.sendMessage({ type: 'fillTab', tabId, profileId: profileSel.value });
+  // A single-field fill updates the existing report rather than starting over.
+  if (mode !== 'focused') {
+    reports.clear();
+    render();
+  }
+  statusEl.textContent = mode === 'focused' ? 'Filling the field you clicked…' : 'Starting…';
+  const res: { frames: number; started: number; reasons: string[] } = await chrome.runtime.sendMessage({ type: 'fillTab', tabId, profileId: profileSel.value, mode });
   if (!res?.started) {
     const reason = res?.reasons.find((r) => !/No form|No content script/.test(r));
     statusEl.textContent = reason ?? 'No application form found on this page. (If you just installed the extension, reload the page.)';
   }
-});
+}
+
+fillBtn.addEventListener('click', () => startFill('all'));
+$('fillEmpty').addEventListener('click', () => startFill('empty'));
+$('fillFocused').addEventListener('click', () => startFill('focused'));
+
+// ---------- Learned answers awaiting approval ----------
+
+async function renderPending(): Promise<void> {
+  const list = await getPending();
+  learnBox.hidden = !list.length;
+  learnBox.innerHTML = list.length ? `<h3>Learned from you — save for next time?</h3>` : '';
+  for (const p of list) {
+    const div = document.createElement('div');
+    div.className = 'learn';
+    div.innerHTML = `
+      <div class="grow">
+        <div class="q">${esc(p.answer.pattern)}</div>
+        <div class="a">${esc(p.answer.answer)}</div>
+        ${p.previous !== undefined ? `<div class="prev" title="Saved answer this replaces">${esc(p.previous)}</div>` : ''}
+      </div>
+      <button class="yes" title="${p.previous !== undefined ? 'Replace the saved answer' : 'Save this answer'}">✓</button>
+      <button class="no" title="Don't save">✕</button>`;
+    const drop = async () => setPending((await getPending()).filter((x) => x.answer.pattern !== p.answer.pattern));
+    div.querySelector('.yes')!.addEventListener('click', async () => {
+      await addLearned(p.answer);
+      await drop();
+    });
+    div.querySelector('.no')!.addEventListener('click', drop);
+    learnBox.appendChild(div);
+  }
+}
 
 profileSel.addEventListener('change', () => setSettings({ activeProfileId: profileSel.value }));
-for (const k of ['autoAdvance', 'overwrite', 'learn'] as const) {
+for (const k of ['autoAdvance', 'learn'] as const) {
   $<HTMLInputElement>(k).addEventListener('change', (e) => setSettings({ [k]: (e.target as HTMLInputElement).checked } as Partial<Settings>));
 }
 $('openOptions').addEventListener('click', (e) => {
@@ -120,6 +157,7 @@ chrome.runtime.onMessage.addListener((msg, sender) => {
 chrome.tabs.onActivated.addListener(() => loadReports());
 chrome.storage.onChanged.addListener((changes, area) => {
   if (area === 'local' && (changes.store || changes.settings)) init();
+  if (area === 'session' && changes.pendingLearn) renderPending();
 });
 
 init();

@@ -105,4 +105,12 @@ describe('classify', () => {
     expect(ans('Highest Level of Education Obtained', 'select')).toBe('Bachelor of Science');
     expect(ans('Degree', 'select')).toBe('Master of Science');
   });
+
+  it('answers job descriptions with one bullet per line', () => {
+    expect(key('Job Description')).toBe('workDescription');
+    expect(key('Role Description')).toBe('workDescription');
+    const field = f('Job Description', '', 'textarea');
+    const r = resolve(classify(field, [], [])!, exampleProfile(), field);
+    expect('desired' in r && r.desired.text).toBe('• Built things.\n• Fixed other things.');
+  });
 });

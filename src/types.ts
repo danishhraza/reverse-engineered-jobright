@@ -129,6 +129,16 @@ export interface ProfileStore {
   profiles: ProfileEntry[];
 }
 
+/** all = overwrite, empty = only blank fields, focused = only the field you last clicked. */
+export type FillMode = 'all' | 'empty' | 'focused';
+
+/** A learned answer waiting for you to approve it in the side panel. */
+export interface PendingLearn {
+  answer: Answer;
+  /** What it would replace, if this question was learned before. */
+  previous?: string;
+}
+
 export interface Settings {
   activeProfileId?: string;
   /** Workday-style multi-page forms: click Next automatically after a clean page. */

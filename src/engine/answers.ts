@@ -1,4 +1,4 @@
-import type { Answer, Education, Profile } from '../types';
+import type { Answer, Education, Profile, Work } from '../types';
 import type { Field } from './fields';
 import { norm, patternMatches, type Desired } from './match';
 
@@ -63,6 +63,7 @@ const RULES: Rule[] = [
   { key: 'salary', label: /salary|compensation|pay (expectation|range|requirement)|desired pay|expected pay|rate expectation/ },
   { key: 'startAvailability', label: /start date|when can you start|available to start|earliest (start|available)|availability to start|notice period|when (would|could) you (be able to )?start/ },
   { key: 'yearsExperience', label: /years of (relevant |professional |work )?experience|how many years/ },
+  { key: 'workDescription', label: /^(job |role |position )?(description|responsibilities|duties)( of (your )?(role|position|job))?$|^(job|role|work) (description|responsibilities|duties)|describe your (role|responsibilities|duties)/, short: true },
   { key: 'currentCompany', label: /(current|most recent|present|latest) (company|employer|organi[sz]ation)|^company( name)?$|^employer( name)?$|^organi[sz]ation$/, short: true },
   { key: 'currentTitle', label: /(current|most recent|present|latest) (job )?(title|position|role)|^(job )?title$|^position$/, short: true },
   { key: 'school', label: /\b(school|university|college|institution)\b/, attr: /\bschool\b/, short: true },
@@ -181,6 +182,12 @@ function highestCompleted(list: Education[]): Education | undefined {
   const now = new Date();
   const finished = list.filter((e) => !e.current && (!e.end || e.end.year * 12 + (e.end.month ?? 12) <= now.getFullYear() * 12 + now.getMonth() + 1));
   return finished.sort((a, b) => degreeLevel(b) - degreeLevel(a))[0];
+}
+
+/** A job's description for a "Role Description" box: summary line, then one "• " bullet per line. */
+export function describeJob(w: Work): string {
+  const bullets = (w.bullets ?? []).map((b) => `• ${b.replace(/^\s*[•\-*]\s*/, '')}`);
+  return [w.summary, ...bullets].filter(Boolean).join('\n');
 }
 
 const pad = (n: number) => String(n).padStart(2, '0');
@@ -349,6 +356,8 @@ export function resolve(c: Classification, p: Profile, field: Field): Resolution
       return t(p.preferences.startAvailability);
     case 'yearsExperience':
       return { flag: 'Years of experience — add an answer-bank entry or fill it yourself' };
+    case 'workDescription':
+      return currentJob ? t(describeJob(currentJob)) : { flag: 'No work experience in profile' };
     case 'currentCompany':
       return t(currentJob?.company);
     case 'currentTitle':
