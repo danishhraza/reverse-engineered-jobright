@@ -1,7 +1,7 @@
 import type { Adapter, FillContext } from '../adapters/types';
 import type { Answer, FieldReport, Profile } from '../types';
 import { classify, resolve } from './answers';
-import { sleep, waitFor, waitForSettle } from './dom';
+import { cleanText, isVisible, realClick, sleep, squash, waitFor, waitForSettle } from './dom';
 import { currentValue, scanFields, stampId, type Field } from './fields';
 import { fillField, MIN_MATCH } from './widgets';
 import { norm } from './match';
@@ -23,12 +23,17 @@ export interface PageFillOptions {
 const ASK_HUMAN = 0.55;
 const AUTO_OK = 0.75;
 const RETRIES = 3;
+/** How long to keep watching for fields that render after the page looks done. */
+const LATE_FIELDS_MS = 5000;
 
 export async function fillPage(opts: PageFillOptions): Promise<FieldReport[]> {
   const { profile, adapter } = opts;
   const rows: FieldReport[] = [];
   const ctx: FillContext = { profile, resume: opts.resume, overwrite: opts.overwrite, handled: new Set(), extra: [] };
   const emit = () => opts.onProgress?.([...ctx.extra, ...rows]);
+
+  // Some ATSs (SuccessFactors) are still rendering sections when we start.
+  await waitForSettle(400, 3000);
 
   // 1. Resume.
   const initial = scanFields();
@@ -51,9 +56,19 @@ export async function fillPage(opts: PageFillOptions): Promise<FieldReport[]> {
   // 3. Generic pass. Re-scan after each pass: answering one question can reveal others.
   const done = new Set<string>(ctx.handled);
   if (resumeRow?.id) done.add(resumeRow.id);
-  for (let pass = 0; pass < 3; pass++) {
-    const fields = scanFields().filter((f) => !done.has(f.id) && !ctx.handled.has(f.id));
-    if (!fields.length) break;
+  const fresh = () => scanFields().filter((f) => !done.has(f.id) && !ctx.handled.has(f.id));
+  for (let pass = 0; pass < 8; pass++) {
+    let fields = fresh();
+    if (!fields.length) {
+      // Nothing new yet. Sections can render seconds later (SuccessFactors), so
+      // keep looking for a while before calling the page done.
+      const until = Date.now() + LATE_FIELDS_MS;
+      while (!fields.length && Date.now() < until) {
+        await sleep(500);
+        fields = fresh();
+      }
+      if (!fields.length) break;
+    }
     for (const f of fields) {
       done.add(f.id);
       if (f.kind === 'file') {
@@ -129,8 +144,10 @@ function findResumeInput(fields: Field[], adapter: Adapter): Field | null {
 }
 
 async function uploadResume(fields: Field[], opts: PageFillOptions): Promise<FieldReport | null> {
-  const target = findResumeInput(fields, opts.adapter);
+  let target = findResumeInput(fields, opts.adapter);
+  if (!target && opts.resume) target = await revealResumeInput(opts.adapter);
   if (!target) return null;
+  if (!/resume|\bcv\b/i.test(target.label)) target = { ...target, label: 'Resume' };
   const input = target.el as HTMLInputElement;
   if (!opts.resume) return row(target, 'flagged', 0, 'resume', 'No resume file saved for this profile — add it in Options');
   if (input.files?.length && input.files[0].name === opts.resume.name) return row(target, 'filled', 1, 'resume', 'Already attached', opts.resume.name);
@@ -141,6 +158,7 @@ async function uploadResume(fields: Field[], opts: PageFillOptions): Promise<Fie
   input.files = dt.files;
   input.dispatchEvent(new Event('input', { bubbles: true }));
   input.dispatchEvent(new Event('change', { bubbles: true }));
+  await confirmUploadDialog(input);
 
   const ok = opts.adapter.waitResumeProcessed
     ? await opts.adapter.waitResumeProcessed(input, opts.resume)
@@ -162,4 +180,63 @@ async function defaultWaitUploaded(input: HTMLInputElement, file: File): Promise
   const base = file.name.replace(/\.[^.]+$/, '');
   const seen = await waitFor(() => (scope.textContent ?? '').includes(base) || /upload(ed)? successful|successfully uploaded/i.test(scope.textContent ?? ''), { timeout: 20000, interval: 250 });
   return !!seen;
+}
+
+// Some ATSs (SuccessFactors, iCIMS) only create the file input after you click
+// "Upload"/"Attach". Click it with the native file picker suppressed, then use
+// whatever file input appears.
+const REVEAL_TEXT = /^(upload|attach|add|browse)( a| an| your| my)?( resume| cv| file| document)?s?$|^(upload|attach|add) (resume|cv)\b/i;
+
+function revealButton(): HTMLElement | undefined {
+  const cands = Array.from(document.querySelectorAll<HTMLElement>('button, a, [role="button"], input[type="button"]')).filter(
+    (b) => !b.closest('.rej-ui') && isVisible(b),
+  );
+  const text = (b: HTMLElement) => cleanText(b) || (b as HTMLInputElement).value || b.getAttribute('aria-label') || '';
+  const nearResume = (b: HTMLElement) => {
+    let n: HTMLElement | null = b;
+    for (let i = 0; i < 4 && n; i++, n = n.parentElement) {
+      const t = norm(cleanText(n));
+      if (/\bcover\b/.test(t) && !/\b(resume|cv)\b/.test(t)) return false;
+      if (/\b(resume|cv|curriculum vitae)\b/.test(t)) return true;
+    }
+    return false;
+  };
+  return cands.find((b) => /\b(resume|cv)\b/i.test(text(b)) && REVEAL_TEXT.test(squash(text(b)))) ?? cands.find((b) => REVEAL_TEXT.test(squash(text(b))) && nearResume(b));
+}
+
+async function revealResumeInput(adapter: Adapter): Promise<Field | null> {
+  const btn = revealButton();
+  if (!btn) return null;
+  const before = new Set(document.querySelectorAll('input[type="file"]'));
+  const block = (e: Event) => {
+    if (e.target instanceof HTMLInputElement && e.target.type === 'file') e.preventDefault();
+  };
+  window.addEventListener('click', block, true);
+  try {
+    realClick(btn);
+    const input = await waitFor(
+      () => Array.from(document.querySelectorAll<HTMLInputElement>('input[type="file"]')).find((i) => !before.has(i)),
+      { timeout: 5000, interval: 200 },
+    );
+    await sleep(300);
+    const all = scanFields();
+    const found = findResumeInput(all, adapter);
+    if (found) return found;
+    if (!input) return null;
+    return { id: stampId(input), kind: 'file', el: input, label: 'Resume', hints: '', required: true };
+  } finally {
+    // Leave the blocker in place briefly: some pages call input.click() on a timer.
+    setTimeout(() => window.removeEventListener('click', block, true), 2000);
+  }
+}
+
+/** If the input sits in an upload dialog, press its Upload/OK button. */
+async function confirmUploadDialog(input: HTMLInputElement): Promise<void> {
+  const dialog = input.closest('[role="dialog"], [aria-modal="true"], .modal, .dialog, [class*="Dialog"], [class*="popup" i]');
+  if (!dialog) return;
+  await sleep(500);
+  const ok = Array.from(dialog.querySelectorAll<HTMLElement>('button, a, [role="button"], input[type="button"], input[type="submit"]')).find(
+    (b) => isVisible(b) && /^(upload|ok|attach|save|done|continue)$/i.test(squash(cleanText(b) || (b as HTMLInputElement).value || '')),
+  );
+  if (ok) realClick(ok);
 }

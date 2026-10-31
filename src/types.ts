@@ -41,6 +41,9 @@ export interface Education {
   degreeShort?: string; // "M.S.", "B.S."
   major: string;
   specialization?: string;
+  city?: string; // where the school is, e.g. "Atlanta"
+  state?: string;
+  country?: string;
   gpa?: string;
   start?: YearMonth;
   end?: YearMonth;

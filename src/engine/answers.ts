@@ -1,4 +1,4 @@
-import type { Answer, Profile } from '../types';
+import type { Answer, Education, Profile } from '../types';
 import type { Field } from './fields';
 import { norm, patternMatches, type Desired } from './match';
 
@@ -37,6 +37,9 @@ const RULES: Rule[] = [
   { key: 'address1', label: /^(street |mailing |home |current )?address( line)?( 1)?$|^street/, attr: /address (line )?1|address1|street/, short: true },
   { key: 'postalCode', label: /postal|\bzip\b|post code/, attr: /postal|\bzip\b/, short: true },
   { key: 'county', label: /\bcounty\b/, attr: /\bcounty\b/, short: true },
+  { key: 'schoolCity', label: /\b(institution|school|university|college)\b.*\b(city|location)\b/, short: true },
+  { key: 'schoolState', label: /\b(institution|school|university|college)\b.*\b(state|province)\b/, short: true },
+  { key: 'schoolCountry', label: /\b(institution|school|university|college)\b.*\bcountry\b/, short: true },
   { key: 'location', label: /\blocation\b|where are you (currently )?(located|based)|city (and|,) state|current city/, attr: /\blocation\b/, short: true, not: /willing|open to|relocat/ },
   { key: 'city', label: /\bcity\b|\btown\b/, attr: /\bcity\b/, short: true },
   { key: 'state', label: /\b(state|province|region)\b/, attr: /\bstate\b|\bregion\b|province/, short: true, not: /united states|statement/ },
@@ -162,6 +165,22 @@ function degreeAlts(degree: string, short?: string): string[] {
   if (/bachelor/.test(d)) alts.push("Bachelor's Degree", 'Bachelors', 'Bachelor', "Bachelor's");
   if (/doctor|phd/.test(d)) alts.push('PhD', 'Doctorate', 'Ph.D.');
   return alts;
+}
+
+function degreeLevel(e: Education): number {
+  const d = norm(`${e.degree} ${e.degreeShort ?? ''}`);
+  if (/doctor|phd/.test(d)) return 4;
+  if (/master|\bm ?s\b|\bmba\b/.test(d)) return 3;
+  if (/bachelor|\bb ?s\b|\bb ?a\b/.test(d)) return 2;
+  if (/associate/.test(d)) return 1;
+  return 0;
+}
+
+/** The highest degree already finished (an in-progress degree isn't "obtained"). */
+function highestCompleted(list: Education[]): Education | undefined {
+  const now = new Date();
+  const finished = list.filter((e) => !e.current && (!e.end || e.end.year * 12 + (e.end.month ?? 12) <= now.getFullYear() * 12 + now.getMonth() + 1));
+  return finished.sort((a, b) => degreeLevel(b) - degreeLevel(a))[0];
 }
 
 const pad = (n: number) => String(n).padStart(2, '0');
@@ -336,8 +355,16 @@ export function resolve(c: Classification, p: Profile, field: Field): Resolution
       return t(currentJob?.title);
     case 'school':
       return t(edu?.school);
-    case 'degree':
-      return edu ? t(edu.degree, degreeAlts(edu.degree, edu.degreeShort)) : { flag: 'No education in profile' };
+    case 'degree': {
+      const d = /obtain|complet|earn|attain|achiev|receiv|awarded/.test(lnorm) ? highestCompleted(p.education) : edu;
+      return d ? t(d.degree, degreeAlts(d.degree, d.degreeShort)) : { flag: 'No completed degree in profile' };
+    }
+    case 'schoolCity':
+    case 'schoolState':
+    case 'schoolCountry': {
+      const v = c.key === 'schoolCity' ? edu?.city : c.key === 'schoolState' ? edu?.state : edu?.country;
+      return v ? t(v) : { flag: `Add the school's ${c.key.slice(6).toLowerCase()} to education in your profile` };
+    }
     case 'major':
       return t(edu?.major);
     case 'gpa':

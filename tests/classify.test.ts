@@ -85,4 +85,24 @@ describe('classify', () => {
     const c = classify(f('What is your favorite color?'), [], [{ pattern: 'What is your favorite color?', answer: 'Blue' }]);
     expect(c).toMatchObject({ source: 'learned', answer: 'Blue' });
   });
+
+  it('answers SuccessFactors education questions from the school, not your address', () => {
+    const p = exampleProfile();
+    p.education = [
+      { school: 'Georgia Tech', degree: 'Master of Science', major: 'CS', city: 'Atlanta', state: 'Georgia', current: true, end: { year: 2099 } },
+      { school: 'IBA', degree: 'Bachelor of Science', major: 'CS', city: 'Karachi', state: 'Sindh', end: { year: 2025, month: 5 } },
+    ];
+    const ans = (label: string, kind: Field['kind'] = 'text') => {
+      const field = f(label, '', kind);
+      const c = classify(field, [], [])!;
+      const r = resolve(c, p, field);
+      return 'desired' in r ? r.desired.text : r;
+    };
+    expect(ans('Institution City')).toBe('Atlanta');
+    expect(ans('Institution State')).toBe('Georgia');
+    expect(ans('Institution Name')).toBe('Georgia Tech');
+    // An in-progress master's hasn't been "obtained" yet.
+    expect(ans('Highest Level of Education Obtained', 'select')).toBe('Bachelor of Science');
+    expect(ans('Degree', 'select')).toBe('Master of Science');
+  });
 });

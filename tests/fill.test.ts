@@ -94,6 +94,44 @@ describe('single-page form (Greenhouse-like)', () => {
   });
 });
 
+describe('SuccessFactors-like page', () => {
+  it('fills sections that render late and finds a resume input created by an Upload button', async () => {
+    document.body.innerHTML = `
+      <form>
+        <div><span>Resume</span> <a href="#" id="up">Upload</a></div>
+        <div class="field"><label for="fn">First Name</label><input id="fn"></div>
+        <div id="later"></div>
+      </form>`;
+    let pickerOpened = false;
+    document.getElementById('up')!.addEventListener('click', (e) => {
+      e.preventDefault();
+      const input = document.createElement('input');
+      input.type = 'file';
+      input.addEventListener('click', (ev) => {
+        if (!ev.defaultPrevented) pickerOpened = true;
+      });
+      input.addEventListener('change', () => {
+        const done = document.createElement('span');
+        done.textContent = input.files?.[0]?.name ?? '';
+        document.getElementById('up')!.after(done);
+      });
+      document.getElementById('up')!.parentElement!.appendChild(input);
+      input.click(); // what real pages do — must not open the OS file picker
+    });
+    // The questionnaire shows up a while after the page loads.
+    setTimeout(() => {
+      document.getElementById('later')!.innerHTML = '<label for="ln">Last Name</label><input id="ln">';
+    }, 3500);
+
+    const resume = new File(['%PDF-1.4'], 'Alex Example - SWE.pdf', { type: 'application/pdf' });
+    const report = await fill({ resume });
+    expect(byLabel(report.fields, /Resume/)?.status).toBe('filled');
+    expect(pickerOpened).toBe(false);
+    expect((document.getElementById('fn') as HTMLInputElement).value).toBe('Alex');
+    expect((document.getElementById('ln') as HTMLInputElement).value).toBe('Example');
+  });
+});
+
 describe('dropdown retry', () => {
   it('flags a dropdown whose options never contain the answer', async () => {
     document.body.innerHTML = '<form><div id="c"><label>Country</label></div><input><input></form>';
