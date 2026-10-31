@@ -41,7 +41,7 @@ describe('single-page form (Greenhouse-like)', () => {
         <div class="field"><label for="vet">Veteran Status</label>
           <select id="vet"><option value="">Select...</option><option>I am not a protected veteran</option><option>I identify as one or more of the classifications of protected veteran</option><option>I don't wish to answer</option></select></div>
         <div class="field"><label for="why">Why do you want to work here? *</label><textarea id="why" required></textarea></div>
-        <div><p>Have you ever worked for Acme before?</p><div><button type="button">Yes</button><button type="button">No</button></div></div>
+        <div><label for="prev">Have you ever worked for Acme before?</label><div><button type="button" aria-pressed="false">Yes</button><button type="button" aria-pressed="false">No</button><input type="checkbox" tabindex="-1" name="prev"></div></div>
         <div class="field"><label><input type="checkbox" id="consent" required> I agree to the privacy policy</label></div>
       </form>`;
     // Async "location" autocomplete.
@@ -77,8 +77,9 @@ describe('single-page form (Greenhouse-like)', () => {
     expect(document.querySelector('.select__single-value')!.textContent).toBe('Springfield, Illinois, United States');
     expect(byLabel(rows, /Location/)?.status).toBe('filled');
 
-    // Previously-employed button group answered No.
+    // Previously-employed button group (Ashby-style, with hidden backing checkbox) answered No, once.
     expect(Array.from(document.querySelectorAll('button')).find((b) => b.textContent === 'No')!.getAttribute('aria-pressed')).toBe('true');
+    expect(rows.filter((r) => /worked for Acme/.test(r.label))).toHaveLength(1);
 
     // Things a human must do.
     expect(byLabel(rows, /Why do you want/)?.status).toBe('flagged');

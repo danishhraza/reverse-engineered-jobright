@@ -41,14 +41,15 @@ const RULES: Rule[] = [
   { key: 'city', label: /\bcity\b|\btown\b/, attr: /\bcity\b/, short: true },
   { key: 'state', label: /\b(state|province|region)\b/, attr: /\bstate\b|\bregion\b|province/, short: true, not: /united states|statement/ },
   { key: 'country', label: /\bcountry\b/, attr: /\bcountry\b/, short: true, not: /code/ },
-  { key: 'pronouns', label: /pronoun/ },
+  { key: 'pronouns', label: /\bpronouns?\b/ },
   { key: 'sponsorship', label: /sponsor/ },
   { key: 'workAuthorized', label: /(legally )?(authori[sz]ed|eligible|permitted) to work|work (authori[sz]ation|permit)|right to work|legal right to/ },
   { key: 'citizen', label: /\bcitizen(ship)?\b/ },
   { key: 'over18', label: /18 years|over 18|at least 18|age of 18|legal (working )?age/ },
   { key: 'previouslyEmployed', label: /(previously|ever|formerly|currently) (been )?(employed|worked) (by|for|at|with)|former employee|worked (for|at) .* before/ },
   { key: 'referred', label: /were you referred|referred by|employee referral|know anyone (who works|at)/ },
-  { key: 'howDidYouHear', label: /how did you (hear|find|learn|come across)|where did you (hear|find|learn|see)|^source$|referral source|how .* find (out )?about/, attr: /\bsource\b/ },
+  { key: 'howDidYouHear', label: /how (did )?you (hear|heard|find|found|learn|learned|come across)|where did you (hear|find|learn|see)|^source$|referral source|how .* find (out )?about/, attr: /\bsource\b/ },
+  { key: 'school', label: /which (university|school|college)|(university|school|college) (are you|did you)/ },
   { key: 'relocate', label: /relocat/ },
   { key: 'hispanic', label: /hispanic|latin[oax]/ },
   { key: 'ethnicity', label: /\b(race|ethnicity|ethnic|racial)\b/ },
@@ -123,13 +124,35 @@ const COUNTRY_ALTS: Record<string, string[]> = {
   Canada: ['CA'],
 };
 
+// Countries a work-authorization question may name. If one is named that the
+// profile has no entry for, the question is flagged instead of guessed.
 const COUNTRY_CODES: [RegExp, string][] = [
   [/\bcanad/, 'CA'],
-  [/\b(united kingdom|uk|britain|england)\b/, 'GB'],
+  [/\b(united kingdom|uk|britain|british|england)\b/, 'GB'],
   [/\baustralia/, 'AU'],
-  [/\bireland\b/, 'IE'],
+  [/\bireland\b|\birish\b/, 'IE'],
   [/\bnew zealand\b/, 'NZ'],
-  [/\b(united states|u s|us|usa|america)\b/, 'US'],
+  [/\bsingapore/, 'SG'],
+  [/\bindia\b|\bindian\b/, 'IN'],
+  [/\bpakistan/, 'PK'],
+  [/\bgerman/, 'DE'],
+  [/\bfrance\b|\bfrench\b/, 'FR'],
+  [/\bnetherlands\b|\bdutch\b/, 'NL'],
+  [/\bspain\b|\bspanish\b/, 'ES'],
+  [/\bital(y|ian)\b/, 'IT'],
+  [/\bswitzerland\b|\bswiss\b/, 'CH'],
+  [/\bswed(en|ish)\b/, 'SE'],
+  [/\bpoland\b|\bpolish\b/, 'PL'],
+  [/\bisrael/, 'IL'],
+  [/\bjapan/, 'JP'],
+  [/\b(south )?korea/, 'KR'],
+  [/\bchina\b|\bchinese\b/, 'CN'],
+  [/\bmexic/, 'MX'],
+  [/\bbrazil/, 'BR'],
+  [/\bphilippine|\bfilipino/, 'PH'],
+  [/\b(uae|united arab emirates|dubai)\b/, 'AE'],
+  [/\beuropean union\b|\beu\b|\beea\b/, 'EU'],
+  [/\b(united states|u s|us|usa|america|american)\b/, 'US'],
 ];
 
 function degreeAlts(degree: string, short?: string): string[] {
@@ -240,9 +263,10 @@ export function resolve(c: Classification, p: Profile, field: Field): Resolution
     case 'workAuthorized':
     case 'sponsorship':
     case 'citizen': {
+      // Unnamed country ("the country you're applying in") defaults to the US.
       const code = COUNTRY_CODES.find(([re]) => re.test(lnorm))?.[1] ?? 'US';
       const auth = p.eeo.workAuth[code];
-      if (!auth) return { flag: `No work authorization saved for ${code}` };
+      if (!auth) return { flag: `Asks about ${code} — no work authorization saved for that country` };
       if (c.key === 'sponsorship') return { desired: yes(auth.requiresSponsorship) };
       if (c.key === 'workAuthorized') return { desired: yes(auth.authorized) };
       if (field.kind === 'text' || field.kind === 'combobox' || (field.kind === 'select' && !isYesNoQuestion(label))) {

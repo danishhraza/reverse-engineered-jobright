@@ -56,7 +56,7 @@ export function stripLabel(s: string): string {
   return squash(
     s
       .replace(/\(\s*(required|optional)\s*\)/gi, '')
-      .replace(/\*/g, '')
+      .replace(/[*✱]/g, '')
       .replace(/\s*required\s*$/i, ''),
   ).slice(0, 400);
 }
@@ -90,7 +90,29 @@ function precedingText(el: Element, maxLevels = 5): string {
   return '';
 }
 
+/**
+ * A <label> that wraps both the question and the control (Lever) also holds
+ * hidden helper/error text; if it has a dedicated label-ish child, use that.
+ */
+function labelText(label: HTMLLabelElement): string {
+  const inner = Array.from(label.querySelectorAll('[class*="label" i]')).find((n) => n !== label && cleanText(n));
+  return cleanText(inner ?? label);
+}
+
+// Labels that name a button, not the question ("Attach" next to "Resume/CV").
+const GENERIC_LABEL = /^(attach|upload|browse|choose( a)? files?|select( a)? files?|drop .*|add files?|enter manually|or)$/i;
+
 function labelFor(el: HTMLElement): string {
+  const own = ownLabel(el);
+  if (own && !GENERIC_LABEL.test(own.trim())) return own;
+  // Look outward: a labelled group around the control, or text before that group.
+  const group = el.parentElement?.closest('[aria-labelledby], [role="group"], fieldset');
+  const groupText = group ? textOfIds(group.getAttribute('aria-labelledby')) || cleanText(group.querySelector('legend')) : '';
+  if (groupText && !GENERIC_LABEL.test(groupText)) return groupText;
+  return precedingText(group ?? el.parentElement ?? el) || own;
+}
+
+function ownLabel(el: HTMLElement): string {
   // Workday wraps each question in data-automation-id="formField-..." with its own label.
   const wd = el.closest('[data-automation-id^="formField-"]');
   if (wd) {
@@ -101,7 +123,7 @@ function labelFor(el: HTMLElement): string {
   if (by) return by;
   const labels = (el as HTMLInputElement).labels;
   if (labels && labels.length) {
-    const t = Array.from(labels).map(cleanText).filter(Boolean).join(' ');
+    const t = Array.from(labels).map(labelText).filter(Boolean).join(' ');
     if (t) return t;
   }
   const aria = el.getAttribute('aria-label');
@@ -143,7 +165,7 @@ function isRequired(el: Element, label: string): boolean {
   return (
     (el as HTMLInputElement).required ||
     el.getAttribute('aria-required') === 'true' ||
-    /\*/.test(label) ||
+    /[*✱]/.test(label) ||
     /\(required\)/i.test(label)
   );
 }
@@ -208,13 +230,17 @@ export function scanFields(opts: ScanOptions = {}): Field[] {
 
   const radiosByGroup = new Map<string, HTMLInputElement[]>();
   const checkboxesByGroup = new Map<string, HTMLInputElement[]>();
+  const checkboxNames = new Map<string, number>();
+  for (const c of Array.from(root.querySelectorAll<HTMLInputElement>('input[type="checkbox"][name]'))) {
+    checkboxNames.set(c.name, (checkboxNames.get(c.name) ?? 0) + 1);
+  }
 
   for (const el of Array.from(root.querySelectorAll<HTMLElement>('input, select, textarea'))) {
     if (el.closest(exclude) || seen.has(el)) continue;
     const input = el as HTMLInputElement;
     const type = (input.type || '').toLowerCase();
     if (el.tagName === 'INPUT' && SKIP_INPUT_TYPES.has(type)) continue;
-    if (input.disabled) continue;
+    if (input.disabled || /recaptcha|captcha|honeypot/i.test(`${input.name} ${el.id}`)) continue;
     if (type === 'file') {
       // File inputs are usually visually hidden behind an "Attach" button; don't require visibility.
       seen.add(el);
@@ -230,7 +256,11 @@ export function scanFields(opts: ScanOptions = {}): Field[] {
       continue;
     }
     if (type === 'checkbox') {
-      const key = input.name && input.name.endsWith('[]') ? input.name : groupKey(input);
+      // Ashby backs its Yes/No buttons with a hidden checkbox; the buttons are the real control.
+      const sibs = input.parentElement ? Array.from(input.parentElement.children) : [];
+      if (sibs.some((s) => s.matches('button, [role="button"]') && YES_NO.test(cleanText(s)))) continue;
+      // Checkboxes sharing a name are one multi-choice question; group a lone one by container.
+      const key = input.name && (checkboxNames.get(input.name) ?? 0) > 1 ? `name-${input.name}` : groupKey(input);
       checkboxesByGroup.set(key, [...(checkboxesByGroup.get(key) ?? []), input]);
       continue;
     }

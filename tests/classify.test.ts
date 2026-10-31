@@ -1,5 +1,6 @@
-import { classify } from '../src/engine/answers';
+import { classify, resolve } from '../src/engine/answers';
 import type { Field } from '../src/engine/fields';
+import { exampleProfile } from './helpers';
 
 const f = (label: string, hints = '', kind: Field['kind'] = 'text'): Field => ({
   id: 'x',
@@ -51,6 +52,19 @@ describe('classify', () => {
     ['Are you at least 18 years of age?', 'over18'],
   ])('%s -> %s', (label, expected) => {
     expect(key(label)).toBe(expected);
+  });
+
+  it('handles phrasing seen on live Lever forms', () => {
+    expect(key('Name Pronunciation | How do you pronounce your name?')).not.toBe('pronouns');
+    expect(key('Please tell us how you heard about this opportunity.')).toBe('howDidYouHear');
+    expect(key('Which university are you currently attending or did you last attend?')).toBe('school');
+  });
+
+  it('flags citizenship questions about countries not in the profile', () => {
+    const field = f('Are you a Singapore citizen?', '', 'radio');
+    const c = classify(field, [], [])!;
+    expect(c.key).toBe('citizen');
+    expect(resolve(c, exampleProfile(), field)).toHaveProperty('flag');
   });
 
   it('does not treat a location question as the location field', () => {

@@ -7,6 +7,13 @@ const IS_JSDOM = typeof navigator !== 'undefined' && /jsdom/i.test(navigator.use
 export function isVisible(el: Element): boolean {
   if (!el.isConnected) return false;
   if (el.closest('[hidden], [aria-hidden="true"], template')) return false;
+  // Chrome 105+: one native call instead of a computed-style walk up the tree.
+  const native = (el as Element & { checkVisibility?: (o?: object) => boolean }).checkVisibility;
+  if (!IS_JSDOM && typeof native === 'function') {
+    if (!native.call(el, { visibilityProperty: true })) return false;
+    const r = el.getBoundingClientRect();
+    return r.width > 0 || r.height > 0;
+  }
   for (let n: Element | null = el; n; n = n.parentElement) {
     const s = getComputedStyle(n);
     if (s.display === 'none' || s.visibility === 'hidden') return false;
