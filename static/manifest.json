@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
-  "name": "Reverse Engineered Jobright",
-  "short_name": "REJ Autofill",
+  "name": "Autofill Jobs",
+  "short_name": "Autofill Jobs",
   "version": "0.1.0",
   "description": "Local-only autofill for job applications (Workday, Greenhouse, Ashby, Lever) from multiple resume profiles.",
   "permissions": ["storage", "unlimitedStorage", "sidePanel", "webNavigation", "tabs"],
@@ -17,7 +17,11 @@
   ],
   "side_panel": { "default_path": "sidepanel.html" },
   "options_page": "options.html",
-  "action": { "default_title": "Autofill job application" },
+  "icons": { "16": "icons/icon16.png", "32": "icons/icon32.png", "48": "icons/icon48.png", "128": "icons/icon128.png" },
+  "action": {
+    "default_title": "Autofill Jobs",
+    "default_icon": { "16": "icons/icon16.png", "32": "icons/icon32.png", "48": "icons/icon48.png", "128": "icons/icon128.png" }
+  },
   "commands": {
     "fill": {
       "suggested_key": { "default": "Alt+Shift+F" },
