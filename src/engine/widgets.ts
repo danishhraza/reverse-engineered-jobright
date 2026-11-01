@@ -31,6 +31,7 @@ export async function fillField(f: Field, d: Desired, overwrite: boolean): Promi
     const cur = currentValue(f);
     if (cur) return { ok: true, value: cur, match: 1, skipped: true, reason: 'Already filled' };
   }
+  if (d.multi && d.multi.length > 1 && (f.kind === 'combobox' || (f.kind === 'text' && isTagInput(f.el)))) return fillTags(f, d.multi);
   switch (f.kind) {
     case 'text':
     case 'textarea':
@@ -333,4 +334,120 @@ function closeDropdown(trigger: HTMLElement): void {
     pressKey(trigger, 'Escape');
   }
   trigger.dispatchEvent(new FocusEvent('blur', { bubbles: true }));
+}
+
+// ---------- Tag pickers (skills): type one, pick it, repeat ----------
+
+/** Most tags we'll add; each one waits on the site's search. */
+const MAX_TAGS = 20;
+
+function isTagInput(el: HTMLElement): boolean {
+  if (el.getAttribute('aria-autocomplete') || el.getAttribute('role') === 'combobox') return true;
+  for (let n = el.parentElement, i = 0; n && i < 3; n = n.parentElement, i++) {
+    if (/\b\w*(tag|chip|token|multi|select2|choices)\w*\b/i.test(n.className)) return true;
+  }
+  return false;
+}
+
+/** The box holding the input and its chips: grow outward until we'd take in a label or another field. */
+function tagBox(input: HTMLElement): HTMLElement {
+  let box = input.parentElement ?? input;
+  for (let i = 0; i < 4 && box.parentElement; i++) {
+    const up = box.parentElement;
+    if (up.matches('form, body') || up.querySelector('label, legend, h1, h2, h3, h4, h5, h6')) break;
+    const others = Array.from(up.querySelectorAll('input:not([type="hidden"]), select, textarea')).filter((x) => x !== input);
+    if (others.length) break;
+    box = up;
+  }
+  return box;
+}
+
+/** Chip text in the box, without the input or any open option list. */
+function chipText(box: HTMLElement): string {
+  const clone = box.cloneNode(true) as HTMLElement;
+  clone.querySelectorAll(`${OPTION_SEL}, [role="listbox"], input, textarea`).forEach((n) => n.remove());
+  return ` ${norm(clone.textContent ?? '')} `;
+}
+
+/** The site said it has nothing for what we typed. */
+function noResults(): boolean {
+  return Array.from(document.querySelectorAll<HTMLElement>(`${OPTION_SEL}, [class*="no-result" i], [class*="noresult" i], [class*="no-option" i], [class*="empty" i]`)).some(
+    (el) => !el.closest('.rej-ui') && isVisible(el) && /^(no (results?|matches|options|items)|nothing found)\b/i.test(cleanText(el)),
+  );
+}
+
+const hasTag = (box: HTMLElement, label: string) => chipText(box).includes(` ${norm(label)} `);
+
+/** Best option for one skill: a close match only, shortest label on a tie ("React.js" over "React Native"). */
+function bestTag(labels: string[], item: string): number {
+  let best = -1;
+  let score = 0;
+  labels.forEach((l, i) => {
+    const s = matchOption([l], { text: item })?.score ?? 0;
+    if (s > score || (s === score && best >= 0 && l.length < labels[best].length)) {
+      best = i;
+      score = s;
+    }
+  });
+  return score >= 0.85 ? best : -1;
+}
+
+async function fillTags(f: Field, items: string[]): Promise<WidgetResult> {
+  const input = (f.el.tagName === 'INPUT' ? f.el : f.el.querySelector('input:not([type="hidden"])')) as HTMLInputElement | null;
+  if (!input) return { ok: false, match: 0, reason: 'No box to type into' };
+  const box = tagBox(input);
+  const list = items.slice(0, MAX_TAGS);
+  const added: string[] = [];
+  const missed: string[] = [];
+  const clear = () => {
+    if (input.value) setNativeValue(input, '');
+    closeDropdown(input);
+  };
+
+  for (const item of list) {
+    if (isCancelled()) {
+      clear();
+      checkCancel();
+    }
+    if (hasTag(box, item)) {
+      added.push(item);
+      continue;
+    }
+    status(`${fieldName(f)}: adding "${item}" (${added.length + missed.length + 1} of ${list.length})…`);
+    realClick(input);
+    typeText(input, item);
+    // Skill lists are often searched on the server, so give them a while (but not after "No results").
+    let options = await waitFor(() => {
+      const o = visibleOptions(input);
+      return o.length ? o : noResults() ? [] : null;
+    }, { timeout: 6000 });
+    if (options && !options.length) options = null;
+    if (options) {
+      await waitForSettle(250, 2000);
+      options = visibleOptions(input);
+    }
+    const labels = (options ?? []).map((o) => cleanText(o));
+    const i = options ? bestTag(labels, item) : -1;
+    if (i < 0) {
+      missed.push(item);
+      clear();
+      await sleep(150);
+      continue;
+    }
+    realClick(options![i]);
+    const stuck = await waitFor(() => hasTag(box, labels[i]), { timeout: 2000 });
+    (stuck ? added : missed).push(stuck ? labels[i] : item);
+    if (!stuck) clear();
+    else if (input.value) setNativeValue(input, '');
+    await sleep(150);
+  }
+  closeDropdown(input);
+  if (!added.length) return { ok: false, match: 0, reason: "None of your skills are in the site's list" };
+  const rest = items.length > list.length ? ` (stopped at ${MAX_TAGS})` : '';
+  return {
+    ok: true,
+    value: added.join(', '),
+    match: missed.length ? 0.9 : 1,
+    reason: missed.length ? `Not in the site's list: ${missed.join(', ')}${rest}` : rest.trim() || undefined,
+  };
 }

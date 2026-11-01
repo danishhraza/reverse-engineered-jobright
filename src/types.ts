@@ -54,6 +54,7 @@ export interface Work {
   company: string;
   title: string;
   location?: string;
+  country?: string; // for forms that ask each job's country
   start?: YearMonth;
   end?: YearMonth;
   current?: boolean;

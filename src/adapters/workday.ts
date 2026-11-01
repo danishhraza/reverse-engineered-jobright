@@ -1,10 +1,9 @@
 import type { Adapter, FillContext } from './types';
-import type { Education, FieldReport, Work, YearMonth } from '../types';
+import type { FieldReport } from '../types';
 import { byText, cleanText, isVisible, realClick, waitFor, waitForSettle } from '../engine/dom';
-import { describeJob } from '../engine/answers';
+import { eduResolver, fillEntryField, workResolver, type EntryResolver } from '../engine/entries';
 import { checkCancel, status } from '../engine/control';
 import { scanFields, type Field } from '../engine/fields';
-import { norm, type Desired } from '../engine/match';
 import { fillField } from '../engine/widgets';
 
 // Workday: multi-page wizard, repeatable "Work Experience N" / "Education N"
@@ -54,71 +53,6 @@ function panels(container: HTMLElement, title: RegExp): HTMLElement[] {
   return hs.map((h) => panelFor(h, hs));
 }
 
-const pad = (n: number) => String(n).padStart(2, '0');
-
-function dateValue(f: Field, ym: YearMonth | undefined): string | null {
-  if (!ym) return null;
-  const h = `${f.hints} ${norm(f.el.getAttribute('aria-label') ?? '')}`;
-  if (/month/.test(h)) return ym.month ? pad(ym.month) : null;
-  if (/year/.test(h)) return String(ym.year);
-  return ym.month ? `${pad(ym.month)}/${ym.year}` : String(ym.year);
-}
-
-type EntryResolver<T> = (f: Field, label: string, entry: T) => Desired | null | 'skip';
-
-const workResolver: EntryResolver<Work> = (f, label, w) => {
-  if (/currently work|current(ly)? (employed|working)|i currently/.test(label)) return { text: w.current ? 'Yes' : 'No', bool: !!w.current };
-  if (/title|position|role$/.test(label)) return { text: w.title };
-  if (/company|employer|organi[sz]ation/.test(label)) return { text: w.company };
-  if (/location/.test(label)) return w.location ? { text: w.location } : 'skip';
-  if (/^from$|start/.test(label)) {
-    const v = dateValue(f, w.start);
-    return v ? { text: v } : 'skip';
-  }
-  if (/^to$|end/.test(label)) {
-    if (w.current) return 'skip';
-    const v = dateValue(f, w.end);
-    return v ? { text: v } : 'skip';
-  }
-  if (/description|responsibilit|summary|duties/.test(label)) {
-    const text = describeJob(w);
-    return text ? { text } : 'skip';
-  }
-  return null;
-};
-
-const eduResolver: EntryResolver<Education> = (f, label, e) => {
-  if (/school|university|college|institution/.test(label)) return { text: e.school };
-  if (/degree/.test(label)) {
-    const alts = [e.degreeShort ?? '', /master/i.test(e.degree) ? "Master's Degree" : /bachelor/i.test(e.degree) ? "Bachelor's Degree" : ''].filter(Boolean);
-    return { text: e.degree, alts };
-  }
-  if (/field of study|major|discipline/.test(label)) return { text: e.major };
-  if (/gpa|overall result|grade/.test(label)) return e.gpa ? { text: e.gpa } : 'skip';
-  if (/^from$|start/.test(label)) {
-    const v = dateValue(f, e.start);
-    return v ? { text: v } : 'skip';
-  }
-  if (/^to$|end|graduat/.test(label)) {
-    const v = dateValue(f, e.end);
-    return v ? { text: v } : 'skip';
-  }
-  return null;
-};
-
-async function fillEntryField<T>(ctx: FillContext, f: Field, name: string, entry: T, resolver: EntryResolver<T>): Promise<FieldReport | null> {
-  const d = resolver(f, norm(f.label), entry);
-  const rowLabel = `${name}: ${f.label || f.hints}`;
-  if (d === 'skip') return null;
-  if (!d) return f.required ? { id: f.id, label: rowLabel, status: 'flagged', confidence: 0, reason: 'Unknown field in section', required: true } : null;
-  if (!f.el.isConnected) return null; // e.g. end date removed after ticking "currently work here"
-  const r = await fillField(f, d, ctx.overwrite);
-  const conf = 0.9 * r.match;
-  const status: FieldReport['status'] = !r.ok ? 'flagged' : r.skipped ? 'skipped' : conf < 0.75 ? 'flagged' : 'filled';
-  await waitForSettle(150, 800);
-  return { id: f.id, label: rowLabel, status, confidence: Math.round(conf * 100) / 100, value: r.value, reason: r.reason, required: f.required };
-}
-
 /** A field inside "Work Experience N" / "Education N": fill it from entry N. */
 async function fillOneInSection(ctx: FillContext, f: Field): Promise<FieldReport | null | undefined> {
   const sections = [
@@ -132,7 +66,7 @@ async function fillOneInSection(ctx: FillContext, f: Field): Promise<FieldReport
     if (i < 0) return undefined;
     const entry = entries[i];
     if (!entry) return { id: f.id, label: `${name} ${i + 1}: ${f.label}`, status: 'flagged', confidence: 0, reason: `Your profile has only ${entries.length} ${name.toLowerCase()} entries` };
-    return fillEntryField(ctx, f, `${name} ${i + 1}`, entry as never, resolver as EntryResolver<unknown>);
+    return fillEntryField(f, `${name} ${i + 1}`, entry as never, resolver as EntryResolver<unknown>, ctx.overwrite);
   }
   if (sectionContainer(/^skills$/i)?.contains(f.el)) {
     await fillSkills(ctx);
@@ -168,7 +102,7 @@ async function fillRepeatable<T>(ctx: FillContext, title: RegExp, name: string, 
       checkCancel();
       ctx.handled.add(f.id);
       status(`Workday: ${name} ${i + 1} — ${f.label || 'field'}…`);
-      const r = await fillEntryField(ctx, f, `${name} ${i + 1}`, entries[i], resolver);
+      const r = await fillEntryField(f, `${name} ${i + 1}`, entries[i], resolver, ctx.overwrite);
       if (r) ctx.extra.push(r);
     }
   }

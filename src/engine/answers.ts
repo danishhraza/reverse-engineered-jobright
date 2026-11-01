@@ -63,9 +63,9 @@ const RULES: Rule[] = [
   { key: 'salary', label: /salary|compensation|pay (expectation|range|requirement)|desired pay|expected pay|rate expectation/ },
   { key: 'startAvailability', label: /start date|when can you start|available to start|earliest (start|available)|availability to start|notice period|when (would|could) you (be able to )?start/ },
   { key: 'yearsExperience', label: /years of (relevant |professional |work )?experience|how many years/ },
-  { key: 'workDescription', label: /^(job |role |position )?(description|responsibilities|duties)( of (your )?(role|position|job))?$|^(job|role|work) (description|responsibilities|duties)|describe your (role|responsibilities|duties)/, short: true },
+  { key: 'workDescription', label: /^(job |role |position )?(description|responsibilities|duties)( of (your )?(role|position|job))?$|^(job|role|work) (description|responsibilities|duties)|^roles? and responsibilities$|describe your (role|responsibilities|duties)/, short: true },
   { key: 'currentCompany', label: /(current|most recent|present|latest) (company|employer|organi[sz]ation)|^company( name)?$|^employer( name)?$|^organi[sz]ation$/, short: true },
-  { key: 'currentTitle', label: /(current|most recent|present|latest) (job )?(title|position|role)|^(job )?title$|^position$/, short: true },
+  { key: 'currentTitle', label: /(current|most recent|present|latest) (job )?(title|position|role)|^(job |position )?title$|^(job )?position$/, short: true },
   { key: 'school', label: /\b(school|university|college|institution)\b/, attr: /\bschool\b/, short: true },
   { key: 'degree', label: /\bdegree\b|level of education|highest education/, attr: /\bdegree\b/, short: true },
   { key: 'major', label: /\bmajor\b|discipline|field of study|area of study|concentration/, attr: /discipline|major|field of study/, short: true },
@@ -159,7 +159,7 @@ const COUNTRY_CODES: [RegExp, string][] = [
   [/\b(united states|u s|us|usa|america|american)\b/, 'US'],
 ];
 
-function degreeAlts(degree: string, short?: string): string[] {
+export function degreeAlts(degree: string, short?: string): string[] {
   const d = norm(degree);
   const alts = short ? [short, short.replace(/\./g, '')] : [];
   if (/master/.test(d)) alts.push("Master's Degree", 'Masters', 'Master', "Master's");
@@ -381,7 +381,8 @@ export function resolve(c: Classification, p: Profile, field: Field): Resolution
     case 'gradYear':
       return edu?.end ? t(String(edu.end.year), edu.end.month ? [`${pad(edu.end.month)}/${edu.end.year}`] : []) : { flag: 'No graduation date' };
     case 'skills':
-      return t(p.skills.slice(0, 25).join(', '));
+      // Tag-style pickers add these one at a time; plain text boxes get the joined list.
+      return p.skills.length ? { desired: { text: p.skills.slice(0, 25).join(', '), multi: p.skills.slice(0, 25) } } : { flag: 'No skills in your profile' };
     case 'additionalInfo':
       return p.preferences.additionalInfo ? t(p.preferences.additionalInfo) : { skip: 'Nothing to add' };
     case 'summary':

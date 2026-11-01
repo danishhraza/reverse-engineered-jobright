@@ -43,6 +43,8 @@ src/
     match.ts            text normalization; pick the best option from a list, with a score
     widgets.ts          how to fill each kind of control (text, select, dropdown, radio ...)
     fill.ts             one page: resume, adapter sections, generic passes, retries, flags
+    sections.ts         repeating Work/Education blocks on any site ("add another")
+    entries.ts          one Work/Education entry's fields: title, employer, dates, country...
     run.ts              many pages: Next button, stop conditions; highlight; learning
     control.ts          cancel flag + live status line
 
@@ -132,6 +134,13 @@ first, so they win). The resume PDF for each profile is stored separately as
 3. **Adapter sections.** `adapter.fillSpecial()`, e.g. Workday's repeatable panels: find the
    "Work Experience" heading, click **Add** until there are enough "Work Experience N"
    panels, and fill each panel from `profile.work[N-1]`.
+   Sites without their own adapter code get the same from `sections.ts`: a section runs from a
+   title like "Work History" or "Education" to its **add another** link, in document order.
+   Blocks inside it are split where a label repeats (a second "Employer" starts job 2). Block N
+   is filled from entry N of the profile, and the link is clicked until there's a block per
+   entry. Each block gets two rounds, because an answer can reveal fields ("Current position?
+   No" → End Date). A field the entry doesn't cover goes to the generic engine (e.g. "Highest
+   degree obtained"). This is plain order matching, no LLM.
 4. **Generic passes.** `scanFields()` → for each field not handled yet: `classify` → `resolve`
    → `fillField`. Then scan again, because answering one question often reveals another
    ("Yes, I need sponsorship" → "Which visa?"). It keeps going until a scan finds nothing new,
@@ -269,6 +278,10 @@ Sites are built with React/Vue/Angular, which ignore `input.value = 'x'`. So:
   match, then verify the displayed value. Queries are tried in order: the answer, a shorter
   form, an alternate, and finally an empty query to see the whole list. Two levels of nesting
   are followed (Workday: "Job Board" → "LinkedIn").
+- **Tag pickers** (skills): one skill at a time. Type it, wait up to 6 s for the site's
+  search (or stop early on "No results"), pick only a close match (shortest label wins a tie,
+  so "React" picks "React.js" over "React Native", and never "Reactor"), then check a chip
+  appeared. It never presses Enter, which on many pickers selects whatever is highlighted.
 - **Radio / Yes-No buttons:** match, click, verify `checked` / `aria-pressed`.
 - **Rich text:** dispatch a synthetic `paste` event (every major editor handles paste and keeps
   line breaks), fall back to `execCommand('insertText')` line by line, then to `<p>` per line.

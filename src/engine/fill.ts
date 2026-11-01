@@ -4,6 +4,8 @@ import { classify, resolve } from './answers';
 import { checkCancel, rethrowCancel, status } from './control';
 import { cleanText, isVisible, realClick, sleep, squash, waitFor, waitForSettle } from './dom';
 import { currentValue, scanFields, stampId, type Field } from './fields';
+import { fillEntryField } from './entries';
+import { entryFor, fillSections } from './sections';
 import { fillField, MIN_MATCH } from './widgets';
 import { norm } from './match';
 
@@ -56,6 +58,19 @@ export async function fillPage(opts: PageFillOptions): Promise<FieldReport[]> {
       ctx.extra.push({ id: '', label: `${adapter.name} sections`, status: 'failed', confidence: 0, reason: String(e) });
     }
     emit();
+  } else {
+    // Repeating Work/Education blocks on sites without their own adapter code.
+    checkCancel();
+    await fillSections({
+      profile,
+      overwrite: opts.overwrite,
+      handled: ctx.handled,
+      onRow: (r) => {
+        ctx.extra.push(r);
+        emit();
+      },
+      fallback: (f) => fillOne(f, opts),
+    });
   }
 
   // 3. Generic pass. Re-scan after each pass: answering one question can reveal others.
@@ -109,6 +124,8 @@ export async function fillSingle(f: Field, opts: PageFillOptions): Promise<Field
     const r = await opts.adapter.fillOne(ctx, f);
     if (r !== undefined) return r;
   }
+  const e = entryFor(f, opts.profile);
+  if (e) return fillEntryField(f, e.name, e.entry, e.resolver, true, (x) => fillOne(x, o));
   return fillOne(f, o);
 }
 
