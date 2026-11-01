@@ -1,5 +1,5 @@
 import { validateStore } from '../profile/merge';
-import { getLearned, getResume, getSettings, getStore, setLearned, setResume, setSettings, setStore } from '../profile/storage';
+import { getAccount, getLearned, getResume, getSettings, getStore, setAccount, setLearned, setResume, setSettings, setStore } from '../profile/storage';
 import type { ProfileStore, Settings } from '../types';
 
 const $ = <T extends HTMLElement>(id: string) => document.getElementById(id) as T;
@@ -132,4 +132,28 @@ for (const k of ['autoAdvance', 'overwrite', 'learn', 'showFab'] as const) {
   $<HTMLInputElement>(k).addEventListener('change', (e) => setSettings({ [k]: (e.target as HTMLInputElement).checked } as Partial<Settings>));
 }
 
+// ---------- Job site login ----------
+
+async function renderAccount(): Promise<void> {
+  const a = await getAccount();
+  $<HTMLInputElement>('accEmail').value = a.email ?? '';
+  $<HTMLInputElement>('accUser').value = a.username ?? '';
+  $<HTMLInputElement>('accPass').value = a.password ?? '';
+}
+
+$<HTMLInputElement>('accShow').addEventListener('change', (e) => {
+  $<HTMLInputElement>('accPass').type = (e.target as HTMLInputElement).checked ? 'text' : 'password';
+});
+$('accSave').addEventListener('click', async () => {
+  const v = (id: string) => $<HTMLInputElement>(id).value.trim() || undefined;
+  await setAccount({ email: v('accEmail'), username: v('accUser'), password: $<HTMLInputElement>('accPass').value || undefined });
+  $('accMsg').textContent = 'Saved.';
+});
+$('accClear').addEventListener('click', async () => {
+  await setAccount({});
+  await renderAccount();
+  $('accMsg').textContent = 'Cleared.';
+});
+
 render();
+renderAccount();

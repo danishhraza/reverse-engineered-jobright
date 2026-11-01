@@ -41,5 +41,5 @@ export function rethrowCancel(e: unknown): void {
 
 /** What the fill is doing right now, shown in the side panel and on the floating button. */
 export function status(text: string): void {
-  sink?.(text);
+  if (!cancelled) sink?.(text);
 }

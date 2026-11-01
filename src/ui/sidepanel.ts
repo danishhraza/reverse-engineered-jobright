@@ -13,6 +13,17 @@ const reportEl = $('report');
 
 let tabId: number | undefined;
 const reports = new Map<number, FillReport>(); // by frameId
+const lastUpdate = new Map<number, number>(); // frameId -> when we last heard from it
+
+/** A fill that hasn't said anything for this long is treated as dead, so the buttons come back. */
+const STALE_MS = 60000;
+const isBusy = (frameId: number, r: FillReport) => !r.done && Date.now() - (lastUpdate.get(frameId) ?? 0) < STALE_MS;
+
+function setReport(frameId: number, r: FillReport): void {
+  reports.set(frameId, r);
+  lastUpdate.set(frameId, Date.now());
+  render();
+}
 
 async function currentTab(): Promise<number | undefined> {
   const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
@@ -39,17 +50,20 @@ async function loadReports(): Promise<void> {
   reports.clear();
   if (tabId === undefined) return render();
   const list: { frameId: number; report: FillReport }[] = await chrome.runtime.sendMessage({ type: 'getReports', tabId });
-  for (const { frameId, report } of list ?? []) reports.set(frameId, report);
+  for (const { frameId, report } of list ?? []) {
+    reports.set(frameId, report);
+    lastUpdate.set(frameId, Date.now());
+  }
   render();
 }
 
 function render(): void {
   const all = [...reports.entries()];
   const rows: (FieldReport & { frameId: number })[] = all.flatMap(([frameId, r]) => r.fields.map((f) => ({ ...f, frameId })));
-  const busy = all.some(([, r]) => !r.done);
+  const busy = all.some(([id, r]) => isBusy(id, r));
   nowEl.hidden = !busy;
   if (busy) {
-    const current = all.filter(([, r]) => !r.done).map(([, r]) => r.current ?? r.message ?? 'Filling…');
+    const current = all.filter(([id, r]) => isBusy(id, r)).map(([, r]) => r.current ?? r.message ?? 'Filling…');
     nowEl.querySelector('.txt')!.textContent = current.join(' · ');
   } else {
     cancelBtn.disabled = false;
@@ -58,7 +72,9 @@ function render(): void {
   fillBtn.disabled = busy || profileSel.options.length === 0;
   for (const b of modeBtns) b.disabled = fillBtn.disabled;
   fillBtn.textContent = busy ? 'Filling…' : rows.length ? 'Fill again' : 'Fill this page';
-  const messages = all.map(([, r]) => (r.ats !== 'Generic' ? `${r.ats}: ` : '') + (r.message ?? '')).filter((m) => m.trim());
+  const messages = all
+    .map(([id, r]) => (r.ats !== 'Generic' ? `${r.ats}: ` : '') + (!r.done && !isBusy(id, r) ? 'No progress for a minute — it may have stopped. Press Fill to try again.' : (r.message ?? '')))
+    .filter((m) => m.trim());
   if (messages.length) statusEl.textContent = messages.join(' · ');
 
   reportEl.innerHTML = '';
@@ -166,14 +182,18 @@ $('openOptions').addEventListener('click', (e) => {
 });
 
 chrome.runtime.onMessage.addListener((msg, sender) => {
-  if (msg.type === 'report' && sender.tab?.id === tabId) {
-    reports.set(sender.frameId ?? 0, msg.report);
-    render();
-  }
+  if (msg.type === 'report' && sender.tab?.id === tabId) setReport(sender.frameId ?? 0, msg.report);
+  // From the background: a page reloaded mid-fill, or Cancel found nothing running.
+  if (msg.type === 'bgReport' && msg.tabId === tabId) setReport(msg.frameId, msg.report);
 });
 chrome.tabs.onActivated.addListener(() => loadReports());
 chrome.storage.onChanged.addListener((changes, area) => {
-  if (area === 'local' && (changes.store || changes.settings)) init();
+  if (area === 'local' && (changes.store || changes.settings)) // Re-check for fills that went quiet.
+setInterval(() => {
+  if ([...reports.entries()].some(([id, r]) => !r.done && !isBusy(id, r))) render();
+}, 5000);
+
+init();
   if (area === 'session' && changes.pendingLearn) renderPending();
 });
 

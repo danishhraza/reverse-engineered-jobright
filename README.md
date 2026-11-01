@@ -15,7 +15,9 @@
   5. Retries a field a few times, then gives up and **flags** it: orange outline on the page plus a "Needs you" list in the side panel (click a row to jump to the field).
 - **Multi-page (Workday).** After a page with no blocking flags it clicks **Save and Continue**, waits for the next page, and keeps going. It adds Work Experience / Education entries with the **Add** button. It **never clicks Submit**; it stops at Review.
 - **Never auto-answered:** consent/"I agree" checkboxes, cover letters, free-text essay questions, and anything you leave as `null` in your profile (e.g. `eeo.ethnicity`).
-- **Progress and Cancel.** The side panel and the floating button show what it's doing right now ("Picking "Country" — waiting for its options…"), with a Cancel / Stop button.
+- **Progress and Cancel.** The side panel and the floating button show what it's doing right now ("Picking "Country" — waiting for its options…"), with a Cancel / Stop button that stops it right away.
+- **Pages that reload (Taleo).** If Next or "I want to upload my resume" reloads the whole page, the fill starts again on the new page. Any other reload mid-fill just ends the run, so the side panel never gets stuck on "Filling…".
+- **Job site login.** Save one email + password in Options → Job site login; it's used on sign-up and sign-in pages when you press Fill. It's kept in this browser's local storage (not encrypted, never synced) and never shown in the side panel.
 - **Learning.** When you answer a flagged question yourself, the side panel asks (✓ / ✕) whether to save the question → answer for next time, showing any answer it would replace. Manage saved answers in Options.
 
 ## Setup
@@ -34,7 +36,7 @@ After changing code: `npm run build` (or `npm run watch`), then click the reload
 
 ## Your data
 
-`profiles/*` (except `example.json`) and `*.pdf` are gitignored, so your real profile never lands in the repo. Use **Export JSON** in Options for a backup.
+`profiles/*` (except `example.json`) and `*.pdf` are gitignored, so your real profile never lands in the repo. Use **Export JSON** in Options for a backup. The job-site login is stored separately and isn't included in the export.
 
 ## Development
 

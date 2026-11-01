@@ -51,7 +51,8 @@ export function findById(id: string): HTMLElement | null {
 }
 
 const CONTROL_SEL = 'input, select, textarea, button, [role="combobox"], [role="listbox"], [contenteditable="true"]';
-const SKIP_INPUT_TYPES = new Set(['hidden', 'submit', 'button', 'image', 'reset', 'password', 'range', 'color']);
+// Password inputs are kept (for job-site sign-up / sign-in); they're never learned or shown in reports.
+const SKIP_INPUT_TYPES = new Set(['hidden', 'submit', 'button', 'image', 'reset', 'range', 'color']);
 
 export function stripLabel(s: string): string {
   return squash(

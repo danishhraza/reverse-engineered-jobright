@@ -16,6 +16,10 @@ export interface RunOptions {
   learn: boolean;
   onReport: (r: FillReport) => void;
   onLearn?: (a: Answer) => void;
+  /** About to do something that may reload the page (Next, a resume choice), so the background can carry on after it. */
+  onNavigate?: (page: number) => void;
+  /** Page number to start counting from when carrying on after a reload. */
+  startPage?: number;
 }
 
 const MAX_PAGES = 10;
@@ -34,7 +38,7 @@ export async function run(opts: RunOptions): Promise<FillReport> {
   let rows: FieldReport[] = [];
   begin((current) => opts.onReport({ ...report, fields: rows, current }));
   try {
-    for (let page = 1; page <= MAX_PAGES; page++) {
+    for (let page = opts.startPage ?? 1; page <= MAX_PAGES; page++) {
       report = { url: location.href, ats: adapter.name, page, fields: [], done: false, message: `Filling page ${page}…` };
       rows = [];
       opts.onReport(report);
@@ -44,6 +48,7 @@ export async function run(opts: RunOptions): Promise<FillReport> {
         adapter,
         learned: opts.learned,
         overwrite: opts.overwrite,
+        onNavigate: () => opts.onNavigate?.(page),
         onProgress: (r) => {
           rows = r;
           opts.onReport({ ...report, fields: r });
@@ -69,6 +74,7 @@ export async function run(opts: RunOptions): Promise<FillReport> {
       checkCancel();
       status(`Page ${page} done — clicking Next and waiting for page ${page + 1}…`);
       const sig = adapter.pageSignature?.() ?? location.href;
+      opts.onNavigate?.(page + 1);
       realClick(next);
       const moved = await waitFor(() => (adapter.hasErrors?.() ? 'error' : (adapter.pageSignature?.() ?? location.href) !== sig ? 'moved' : null), {
         timeout: 15000,
@@ -193,7 +199,7 @@ function watchForLearning(rows: FieldReport[], onLearn?: (a: Answer) => void): v
   const flaggedIds = new Set(rows.filter((r) => r.status === 'flagged' && r.id).map((r) => r.id));
   if (!flaggedIds.size) return;
   for (const f of scanFields()) {
-    if (!flaggedIds.has(f.id) || f.kind === 'file' || watched.has(f.el)) continue;
+    if (!flaggedIds.has(f.id) || f.kind === 'file' || f.inputType === 'password' || watched.has(f.el)) continue;
     // Only learn questions, not personal fields; sensitive EEO answers belong in the profile.
     if (f.label.split(' ').length < 3 || /password|ssn|social security|date of birth|birth ?date/i.test(f.label)) continue;
     watched.add(f.el);

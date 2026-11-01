@@ -1,4 +1,4 @@
-import { DEFAULT_SETTINGS, type Answer, type PendingLearn, type ProfileStore, type Settings } from '../types';
+import { DEFAULT_SETTINGS, type Account, type Answer, type PendingLearn, type ProfileStore, type Settings } from '../types';
 
 // Everything lives in chrome.storage.local (with unlimitedStorage), so content
 // scripts, the side panel and the options page all read the same data.
@@ -6,6 +6,7 @@ import { DEFAULT_SETTINGS, type Answer, type PendingLearn, type ProfileStore, ty
 //   settings     Settings
 //   learned      Answer[]  answers captured from fields you filled by hand
 //   resume:<id>  { name, type, dataUrl }
+//   account      Account  job-site login (plain text in this browser's local storage; never synced)
 
 export interface StoredResume {
   name: string;
@@ -31,6 +32,15 @@ export async function setSettings(patch: Partial<Settings>): Promise<Settings> {
   const next = { ...(await getSettings()), ...patch };
   await chrome.storage.local.set({ settings: next });
   return next;
+}
+
+export async function getAccount(): Promise<Account> {
+  const { account } = await chrome.storage.local.get('account');
+  return (account as Account | undefined) ?? {};
+}
+
+export async function setAccount(account: Account): Promise<void> {
+  await chrome.storage.local.set({ account });
 }
 
 export async function getLearned(): Promise<Answer[]> {

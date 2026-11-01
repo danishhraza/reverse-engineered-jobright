@@ -111,6 +111,16 @@ export interface Profile {
   preferences: Preferences;
   answers: Answer[];
   signupEmail?: string;
+  /** Your job-site login, added at fill time from Options (never part of the profile JSON). */
+  account?: Account;
+}
+
+/** One login reused for job-site sign-up / sign-in pages (Workday, Taleo, iCIMS…). */
+export interface Account {
+  email?: string;
+  /** Only if a site asks for a user name separate from the email. Defaults to the email. */
+  username?: string;
+  password?: string;
 }
 
 export type DeepPartial<T> = {

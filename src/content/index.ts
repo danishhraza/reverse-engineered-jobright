@@ -1,6 +1,6 @@
 import { isKnownAts, pickAdapter } from '../adapters';
 import { resolveProfile } from '../profile/merge';
-import { dataUrlToFile, getLearned, getResume, getSettings, getStore } from '../profile/storage';
+import { dataUrlToFile, getAccount, getLearned, getResume, getSettings, getStore } from '../profile/storage';
 import { looksLikeForm } from '../engine/fields';
 import { cancel } from '../engine/control';
 import { sleep, waitForSettle } from '../engine/dom';
@@ -13,7 +13,7 @@ import type { Answer, FillMode, FillReport } from '../types';
 type Msg =
   | { type: 'ping' }
   | { type: 'focusInfo' }
-  | { type: 'fill'; profileId?: string; mode?: FillMode }
+  | { type: 'fill'; profileId?: string; mode?: FillMode; page?: number }
   | { type: 'cancel' }
   | { type: 'fabReport'; report: FillReport }
   | { type: 'focus'; id: string };
@@ -35,6 +35,9 @@ document.addEventListener('pointerdown', noteFocus, true);
 
 // The last full report, so a single-field fill updates it instead of replacing it.
 let lastReport: FillReport | null = null;
+// You pressed Cancel: the side panel has already been told, so drop the engine's
+// in-flight progress updates until it finishes unwinding.
+let stopping = false;
 
 // Read-only on purpose: nothing here may change the page until you press Fill.
 const hasForm = () => looksLikeForm();
@@ -45,17 +48,18 @@ async function proposeLearned(a: Answer): Promise<void> {
   send({ type: 'learnProposal', answer: a, previous: prev?.answer });
 }
 
-async function startFill(profileId?: string, mode?: FillMode): Promise<{ started: boolean; reason?: string }> {
+async function startFill(profileId?: string, mode?: FillMode, page?: number): Promise<{ started: boolean; reason?: string }> {
   if (isRunning()) return { started: false, reason: 'Already filling' };
   if (mode === 'focused') return startSingle(profileId);
   if (!hasForm()) return { started: false, reason: 'No form in this frame' };
   const [store, settings, learned] = await Promise.all([getStore(), getSettings(), getLearned()]);
   if (!store) return { started: false, reason: 'No profiles yet — import them in Options' };
   const id = profileId ?? settings.activeProfileId ?? store.profiles[0].id;
-  const profile = resolveProfile(store, id);
+  const profile = { ...resolveProfile(store, id), account: await getAccount() };
   const stored = await getResume(id);
   const resume = stored ? dataUrlToFile(stored) : undefined;
 
+  stopping = false;
   setFab('busy', 'Filling…');
   run({
     profile,
@@ -64,11 +68,15 @@ async function startFill(profileId?: string, mode?: FillMode): Promise<{ started
     overwrite: mode === 'empty' ? false : mode === 'all' ? true : settings.overwrite,
     autoAdvance: settings.autoAdvance,
     learn: settings.learn,
+    startPage: page,
     onReport: (report) => {
+      if (stopping && !report.done) return;
       lastReport = report;
       send({ type: 'report', report });
     },
     onLearn: (a) => void proposeLearned(a),
+    // If this click reloads the page, the background starts the fill again on the new one.
+    onNavigate: (nextPage) => send({ type: 'advancing', profileId: id, mode, page: nextPage }),
   }).catch((e) => {
     const report: FillReport = { url: location.href, ats: pickAdapter().name, page: 1, fields: [], done: true, message: `Error: ${e?.message ?? e}` };
     send({ type: 'report', report });
@@ -83,13 +91,15 @@ async function startSingle(profileId?: string): Promise<{ started: boolean; reas
   if (!store) return { started: false, reason: 'No profiles yet — import them in Options' };
   const id = profileId ?? settings.activeProfileId ?? store.profiles[0].id;
   const stored = await getResume(id);
+  stopping = false;
   runSingle(
     {
-      profile: resolveProfile(store, id),
+      profile: { ...resolveProfile(store, id), account: await getAccount() },
       resume: stored ? dataUrlToFile(stored) : undefined,
       learned,
       learn: settings.learn,
       onReport: (single) => {
+        if (stopping && !single.done) return;
         const ids = new Set(single.fields.map((f) => f.id));
         const merged: FillReport = lastReport
           ? { ...lastReport, done: single.done, current: single.current, cancelled: single.cancelled, message: single.message, fields: [...lastReport.fields.filter((f) => !ids.has(f.id)), ...single.fields] }
@@ -122,12 +132,21 @@ chrome.runtime.onMessage.addListener((msg: Msg, _sender, reply) => {
     return;
   }
   if (msg.type === 'fill') {
-    startFill(msg.profileId, msg.mode).then(reply);
+    startFill(msg.profileId, msg.mode, msg.page).then(reply);
     return true;
   }
   if (msg.type === 'cancel') {
-    if (isRunning()) cancel();
-    reply({ ok: true });
+    const wasRunning = isRunning();
+    if (wasRunning) {
+      cancel();
+      // Tell the side panel now; the engine stops at its next step (within ~100 ms of any wait).
+      stopping = true;
+      const base: FillReport = lastReport ?? { url: location.href, ats: pickAdapter().name, page: 1, fields: [], done: true };
+      const stopped: FillReport = { ...base, done: true, cancelled: true, current: undefined, message: 'Stopped. Anything already filled stays — press Fill to redo it.' };
+      lastReport = stopped;
+      send({ type: 'report', report: stopped });
+    }
+    reply({ wasRunning });
     return;
   }
   if (msg.type === 'fabReport') {

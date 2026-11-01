@@ -20,6 +20,7 @@ const RULES: Rule[] = [
   { key: 'resume', label: /\b(resume|cv|curriculum vitae)\b/, attr: /\bresume\b|\bcv\b/, short: true },
   { key: 'preferredFirstName', label: /\b(preferred|nick) ?(first )?name\b|\bname you (go by|prefer)\b/, attr: /preferred (first )?name/ },
   { key: 'middleName', label: /\bmiddle (name|initial)\b/, attr: /middle name/ },
+  { key: 'username', label: /^(user ?name|user ?id|login( id| name)?|(user ?name|login) or e ?mail( address)?|e ?mail( address)? or (user ?name|login))$/, short: true },
   { key: 'firstName', label: /\b(first|given|fore) ?name\b/, attr: /\bfirst ?name\b|\bfname\b|given name/, short: true },
   { key: 'lastName', label: /\b(last|family|sur) ?name\b/, attr: /\blast ?name\b|\blname\b|family name|surname/, short: true },
   { key: 'signature', label: /\bsignature\b|sign your (full )?name/, short: true },
@@ -91,6 +92,9 @@ function wordCount(s: string): number {
 
 export function classify(field: Field, bank: Answer[], learned: Answer[]): Classification | null {
   const label = norm(field.label);
+
+  // A password box is a password box, whatever its label says ("Re-enter", "Confirm"…).
+  if (field.inputType === 'password') return { key: 'password', score: 0.95, source: 'rule' };
 
   if (label) {
     const exact = learned.find((a) => norm(a.pattern) === label);
@@ -235,7 +239,12 @@ export function resolve(c: Classification, p: Profile, field: Field): Resolution
     case 'signature':
       return t(fullName);
     case 'email':
-      return t(per.email);
+      // On a sign-up / sign-in page, use the job-site login email.
+      return t(onAccountPage() && p.account?.email ? p.account.email : per.email);
+    case 'username':
+      return t(p.account?.username || p.account?.email || per.email);
+    case 'password':
+      return p.account?.password ? { desired: { text: p.account.password } } : { flag: 'Save your job-site password in Options → Job site login' };
     case 'phoneType':
       return t(per.phoneType ?? 'Mobile', ['Cell', 'Mobile Phone', 'Cell Phone', 'Personal Mobile', 'Personal']);
     case 'phoneCountryCode': {
@@ -395,6 +404,11 @@ export function resolve(c: Classification, p: Profile, field: Field): Resolution
     }
   }
   return { flag: `Unknown field type "${c.key}"` };
+}
+
+/** A page with a password box is a sign-up / sign-in page. */
+function onAccountPage(): boolean {
+  return typeof document !== 'undefined' && !!document.querySelector('input[type="password"]');
 }
 
 function ethnicityAlts(e: string): string[] {

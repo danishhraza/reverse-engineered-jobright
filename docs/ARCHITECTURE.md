@@ -324,7 +324,19 @@ site-independent.
 - **Cancel.** `cancel()` sets a flag. `checkCancel()` between fields/sections/pages throws a
   `Cancelled` error that `run()` catches, and every wait returns early when the flag is set, so
   it stops within about 100 ms even mid-dropdown. Catch blocks meant for real errors call
-  `rethrowCancel()` so they don't swallow it.
+  `rethrowCancel()` so they don't swallow it. The content script also sends a "Stopped"
+  report the moment you press Cancel, so the side panel doesn't wait for the engine to unwind.
+- **Pages that reload mid-fill.** A full page load kills the content script and its run.
+  Before any click that may reload the page (Next, an "upload my resume" choice, an Upload
+  button) the page sends `advancing` to the background, which keeps it in session storage for
+  30 s. If the tab then finishes loading, the background starts the fill again with the next
+  page number. Any other reload (`webNavigation.onCommitted`) closes out the frame's report as
+  done. Cancel with nothing actually running does the same, and the side panel treats a fill
+  that's been silent for 60 s as stopped.
+- **Job site login.** `account` in `chrome.storage.local` (email, optional user name,
+  password), merged into the profile at fill time. A `type=password` input is always the
+  password; on a page that has one, email fields get the login email. Password values are
+  masked as •••••••• in reports and never learned.
 
 ## Being invisible until you press Fill
 

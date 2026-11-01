@@ -3,7 +3,7 @@ import type { Answer, FieldReport, Profile } from '../types';
 import { classify, resolve } from './answers';
 import { checkCancel, rethrowCancel, status } from './control';
 import { cleanText, isVisible, realClick, sleep, squash, waitFor, waitForSettle } from './dom';
-import { currentValue, scanFields, stampId, type Field } from './fields';
+import { currentValue, isPressed, scanFields, stampId, type Field } from './fields';
 import { fillEntryField } from './entries';
 import { entryFor, fillSections } from './sections';
 import { fillField, MIN_MATCH } from './widgets';
@@ -20,6 +20,8 @@ export interface PageFillOptions {
   learned: Answer[];
   overwrite: boolean;
   onProgress?: (rows: FieldReport[]) => void;
+  /** Called right before a click that may reload the page. */
+  onNavigate?: () => void;
 }
 
 /** Below this, fill nothing and ask the human. Between this and AUTO_OK, fill but ask the human to check. */
@@ -130,6 +132,8 @@ export async function fillSingle(f: Field, opts: PageFillOptions): Promise<Field
 }
 
 function row(f: Field, status: FieldReport['status'], confidence: number, key?: string, reason?: string, value?: string): FieldReport {
+  // Never show a password in the side panel (reports are kept in session storage).
+  if (value && f.inputType === 'password') value = '••••••••';
   return { id: f.id, label: f.label || '(unlabeled field)', key, status, confidence: Math.round(confidence * 100) / 100, reason, value, required: f.required };
 }
 
@@ -191,8 +195,32 @@ function findResumeInput(fields: Field[], adapter: Adapter): Field | null {
 }
 
 async function uploadResume(fields: Field[], opts: PageFillOptions): Promise<FieldReport | null> {
-  const target = findResumeInput(fields, opts.adapter) ?? (opts.resume ? await revealResumeInput(opts.adapter) : null);
+  let target = findResumeInput(fields, opts.adapter);
+  if (!target && opts.resume && (await chooseUploadOption(fields, opts))) target = findResumeInput(scanFields(), opts.adapter);
+  target ??= opts.resume ? await revealResumeInput(opts.adapter) : null;
   return target ? uploadTo(target, opts) : null;
+}
+
+// Taleo and others ask first: "I want to upload my resume" / "Continue without a resume".
+const UPLOAD_CHOICE = /\b(upload|attach|use|submit|import|add|provide)\b.*\b(resume|cv)\b|\b(resume|cv)\b.*\b(upload|attach)/i;
+const NO_RESUME = /without|\bno\b|\bnot\b|don.?t|skip|manual|later|instead|linkedin|indeed/i;
+
+/** Pick the "upload my resume" option if the page offers one. True if it now shows a file input. */
+async function chooseUploadOption(fields: Field[], opts: PageFillOptions): Promise<boolean> {
+  for (const f of fields) {
+    if (f.kind !== 'radio' && f.kind !== 'buttonGroup') continue;
+    const choice = f.choices?.find((c) => UPLOAD_CHOICE.test(c.label) && !NO_RESUME.test(c.label));
+    if (!choice) continue;
+    const input = choice.el as HTMLInputElement;
+    if (input.checked || isPressed(choice.el)) return false;
+    status(`Choosing "${choice.label}"…`);
+    opts.onNavigate?.(); // some sites (Taleo) reload the page on this choice
+    realClick(f.kind === 'radio' && !isVisible(input) && input.labels?.[0] ? input.labels[0] : input);
+    const shown = await waitFor(() => document.querySelector('input[type="file"]'), { timeout: 6000, interval: 200 });
+    await waitForSettle(300, 2000);
+    return !!shown;
+  }
+  return false;
 }
 
 async function uploadTo(target: Field, opts: PageFillOptions): Promise<FieldReport> {
@@ -208,7 +236,7 @@ async function uploadTo(target: Field, opts: PageFillOptions): Promise<FieldRepo
   input.files = dt.files;
   input.dispatchEvent(new Event('input', { bubbles: true }));
   input.dispatchEvent(new Event('change', { bubbles: true }));
-  await confirmUploadDialog(input);
+  if (!(await confirmUploadDialog(input))) await pressUploadButton(input, opts);
 
   const ok = opts.adapter.waitResumeProcessed
     ? await opts.adapter.waitResumeProcessed(input, opts.resume)
@@ -281,13 +309,40 @@ async function revealResumeInput(adapter: Adapter): Promise<Field | null> {
   }
 }
 
-/** If the input sits in an upload dialog, press its Upload/OK button. */
-async function confirmUploadDialog(input: HTMLInputElement): Promise<void> {
+/** If the input sits in an upload dialog, press its Upload/OK button. True if it was in a dialog. */
+async function confirmUploadDialog(input: HTMLInputElement): Promise<boolean> {
   const dialog = input.closest('[role="dialog"], [aria-modal="true"], .modal, .dialog, [class*="Dialog"], [class*="popup" i]');
-  if (!dialog) return;
+  if (!dialog) return false;
   await sleep(500);
   const ok = Array.from(dialog.querySelectorAll<HTMLElement>('button, a, [role="button"], input[type="button"], input[type="submit"]')).find(
     (b) => isVisible(b) && /^(upload|ok|attach|save|done|continue)$/i.test(squash(cleanText(b) || (b as HTMLInputElement).value || '')),
   );
   if (ok) realClick(ok);
+  return true;
+}
+
+/**
+ * Some forms (Taleo) want an "Upload"/"Attach" button pressed after you pick
+ * the file. If the filename doesn't show up on its own, press the one next to
+ * the input, with the OS file picker blocked in case that button opens it.
+ */
+async function pressUploadButton(input: HTMLInputElement, opts: PageFillOptions): Promise<void> {
+  const base = opts.resume!.name.replace(/\.[^.]+$/, '');
+  const scope = input.closest('form') ?? document.body;
+  if (await waitFor(() => (scope.textContent ?? '').includes(base), { timeout: 1500 })) return;
+  let btn: HTMLElement | undefined;
+  for (let n = input.parentElement, i = 0; n && i < 4 && !btn; n = n.parentElement, i++) {
+    btn = Array.from(n.querySelectorAll<HTMLElement>('button, a, [role="button"], input[type="button"], input[type="submit"]')).find(
+      (b) => b !== input && isVisible(b) && /^(upload|attach)( (file|resume|cv|document|my resume))?$/i.test(squash(cleanText(b) || (b as HTMLInputElement).value || '')),
+    );
+  }
+  if (!btn) return;
+  const block = (e: Event) => {
+    if (e.target instanceof HTMLInputElement && e.target.type === 'file') e.preventDefault();
+  };
+  window.addEventListener('click', block, true);
+  status('Pressing the Upload button…');
+  opts.onNavigate?.(); // it may post the form and reload
+  realClick(btn);
+  setTimeout(() => window.removeEventListener('click', block, true), 2000);
 }
