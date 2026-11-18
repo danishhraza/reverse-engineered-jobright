@@ -102,6 +102,8 @@ export interface RunnerState {
   waitSince?: number;
   /** Page fingerprints the AI was already asked about (once each). */
   guided?: string[];
+  /** The page a job was continued on: fill only empty fields there (keep your fixes). */
+  keepUrl?: string;
   /** yyyy-mm-dd -> jobs started that day. */
   startedByDay: Record<string, number>;
 }

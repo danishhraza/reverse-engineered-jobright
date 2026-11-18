@@ -187,6 +187,10 @@ async function fillOne(f: Field, opts: PageFillOptions): Promise<FieldReport | n
   }
   if (c.score < ASK_HUMAN) return row(f, 'flagged', c.score, c.key, 'Not sure what this field is');
   const r = await applyDesired(f, res.desired, c.score, c.key, opts);
+  // Country -> State / County lists reload after a country is picked; let them before going on.
+  if (c.key === 'country' || c.key === 'state' || c.key === 'phoneCountryCode') await waitForSettle(300, 2500);
+  // A phone's flag dropdown almost always defaults to the right country; not worth stopping for.
+  if (c.key === 'phoneCountryCode' && r.status === 'flagged') return { ...r, status: 'skipped', reason: `Left the site's country code (${r.reason ?? 'no match'})` };
   // The answer we have isn't among the options ("How did you hear about us?" without LinkedIn): let the AI pick.
   if (r.status === 'flagged' && (f.kind === 'select' || f.choices?.length) && !currentValue(f)) {
     const ai = await aiFill(f, opts, `My answer "${res.desired.text}" isn't one of the options.`);

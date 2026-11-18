@@ -169,6 +169,8 @@ function nextJob(): Promise<void> {
     const windowId = await runnerWindow(st);
     if (!tab) tab = await chrome.tabs.create({ windowId, url: job.resumeUrl ?? job.url, active: true });
     else chrome.tabs.update(tab.id!, { active: true }).catch(() => {});
+    // Continuing where you left off: on that page, fill only what's still empty, so your fixes stay.
+    st.keepUrl = fresh ? undefined : tab.url;
 
     if (fresh) st.startedByDay = { [day]: (st.startedByDay[day] ?? 0) + 1 }; // keep only today
     st.currentJobId = job.id;
@@ -298,7 +300,15 @@ export function doStep(): Promise<void> {
     const sent = await chrome.tabs
       .sendMessage(
         tab.id!,
-        { type: 'autoStep', step: st.step, profileId: job.profile, autoSubmit: ap.autoSubmit, accountKnown: await accountCreatedOn(host), mode },
+        {
+          type: 'autoStep',
+          step: st.step,
+          profileId: job.profile,
+          autoSubmit: ap.autoSubmit,
+          accountKnown: await accountCreatedOn(host),
+          mode,
+          onlyEmpty: !!st.keepUrl && st.keepUrl === tab.url,
+        },
         { frameId },
       )
       .catch(() => null);
@@ -572,8 +582,17 @@ export function queueAction(a: QueueAction): Promise<{ ok: boolean; added?: numb
       await chrome.alarms.clear(ALARM_TIMEOUT);
       if (st.running) await scheduleNext(2000);
     }
-    // A Continue while the runner is idle-but-on (e.g. paused for held tabs) frees a slot.
-    if (a.action === 'continue' && st.running && !st.currentJobId) await scheduleNext(1000);
+    // Continue means "go": start the runner if it was stopped (queue finished, paused…).
+    // Clearing a job that was waiting on you frees a slot if that's why it paused.
+    const freedSlot = (a.action === 'markApplied' || a.action === 'skip' || a.action === 'remove') && /waiting on you/.test(st.pausedReason ?? '');
+    if (a.action === 'continue' || freedSlot) {
+      if (!st.running) {
+        st.running = true;
+        st.pausedReason = undefined;
+        await saveRunner(st);
+      }
+      if (!st.currentJobId) await scheduleNext(1000);
+    }
     return { ok: true };
   });
 }

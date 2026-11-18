@@ -133,6 +133,102 @@ describe('multi-step forms without an adapter (autopilot)', () => {
   }, 40000);
 });
 
+describe('ADP-style contact page', () => {
+  beforeEach(() => {
+    document.body.innerHTML = `
+      <form>
+        <div class="f"><span>Mobile Number*</span>
+          <div class="iti"><button type="button" aria-haspopup="listbox" aria-label="Mobile Number" id="flag">🇺🇸</button>
+          <input type="tel" id="mob" aria-label="Mobile Number" required></div></div>
+        <div class="f"><label><input type="checkbox" id="sms"> (Optional) I would like to receive text messages to this number about my job application.</label></div>
+        <div class="f"><label for="home">Home Phone Number</label><input type="tel" id="home"></div>
+        <div class="field"><label id="cl">Country *</label>
+          <div class="wrap"><div role="combobox" aria-haspopup="listbox" aria-labelledby="cl" tabindex="0" id="cty"></div><span class="shown"></span></div></div>
+        <div class="f"><label for="city">City *</label><input id="city" required></div>
+        <div class="f"><label for="st">State / Territory *</label>
+          <select id="st" required><option value="">Select</option><option>IA - Iowa</option><option>IL - Illinois</option><option>TX - Texas</option></select></div>
+        <div class="f"><label for="zip">Zip Code *</label><input id="zip" required></div>
+        <div class="f"><label for="county">County</label><input id="county"></div>
+      </form>`;
+    // A dropdown that shows the chosen value in a sibling, not in itself.
+    const cty = document.getElementById('cty')!;
+    cty.addEventListener('click', () => {
+      if (document.getElementById('cty-list')) return;
+      const ul = document.createElement('ul');
+      ul.id = 'cty-list';
+      ul.setAttribute('role', 'listbox');
+      for (const c of ['Canada', 'United States']) {
+        const li = document.createElement('li');
+        li.setAttribute('role', 'option');
+        li.textContent = c;
+        li.addEventListener('click', () => {
+          document.querySelector('.shown')!.textContent = c;
+          ul.remove();
+        });
+        ul.appendChild(li);
+      }
+      document.body.appendChild(ul);
+    });
+  });
+
+  it('fills the mobile number, leaves optional extras alone, and is not blocked by the flag picker', async () => {
+    const report = await run({ ...base, profile: exampleProfile('swe'), autoAdvance: false });
+    const val = (id: string) => (document.getElementById(id) as HTMLInputElement).value;
+    expect(val('mob')).not.toBe('');
+    expect(val('home')).toBe('');
+    expect((document.getElementById('sms') as HTMLInputElement).checked).toBe(false);
+    expect(document.querySelector('.shown')!.textContent).toBe('United States');
+    expect((document.getElementById('st') as HTMLSelectElement).selectedOptions[0].textContent).toBe('IL - Illinois');
+    const blocking = report.fields.filter((f) => f.status === 'flagged' && f.required);
+    expect(blocking.map((f) => `${f.label}: ${f.reason}`)).toEqual([]);
+  }, 60000);
+});
+
+describe('"XX - State" options', () => {
+  it('Texas / TX picks "TX - Texas"', async () => {
+    const { matchOption } = await import('../src/engine/match');
+    const m = matchOption(['Select', 'TN - Tennessee', 'TX - Texas'], { text: 'Texas', alts: ['TX'] });
+    expect(m).toMatchObject({ index: 2 });
+    expect(m!.score).toBeGreaterThanOrEqual(0.85);
+  });
+});
+
+describe('Next anyway (autopilot)', () => {
+  const page = (validates: boolean) => {
+    document.body.innerHTML = `
+      <form>
+        <section id="s1"><h2>Step 1</h2>
+          <div><label for="fn">First Name</label><input id="fn"></div>
+          <div><label for="q">Favourite colour of the hiring manager? *</label><input id="q" required></div>
+          <div id="err"></div>
+          <button type="button" id="next">Next</button></section>
+        <section id="s2" hidden><h2>Step 2</h2><div><label for="em">Email</label><input id="em"></div><button type="button">Submit Application</button></section>
+      </form>`;
+    document.getElementById('next')!.addEventListener('click', () => {
+      if (validates && !(document.getElementById('q') as HTMLInputElement).value) {
+        document.getElementById('err')!.innerHTML = '<p role="alert">This field is required</p>';
+        return;
+      }
+      document.getElementById('s1')!.hidden = true;
+      document.getElementById('s2')!.hidden = false;
+    });
+  };
+
+  it('goes on when the site lets it', async () => {
+    page(false);
+    const report = await run({ ...base, profile: exampleProfile('swe'), autoAdvance: true, autopilot: true });
+    expect(report.stop).toBe('final');
+    expect((document.getElementById('em') as HTMLInputElement).value).toBe('alex@example.com');
+  }, 40000);
+
+  it('stops for you when the site says the answer is required', async () => {
+    page(true);
+    const report = await run({ ...base, profile: exampleProfile('swe'), autoAdvance: true, autopilot: true });
+    expect(report.stop).toBe('blocked');
+    expect(document.getElementById('s2')!.hidden).toBe(true);
+  }, 40000);
+});
+
 describe('fields inside web components (shadow DOM)', () => {
   it('finds and fills an input inside a custom element, labelled by the text next to it', async () => {
     document.body.innerHTML = `<form><div class="f"><span>First Name*</span><x-input id="fn"></x-input></div><div class="f"><span>Last Name*</span><x-input id="ln"></x-input></div></form>`;

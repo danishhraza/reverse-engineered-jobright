@@ -84,9 +84,13 @@ export async function run(opts: RunOptions): Promise<FillReport> {
         report.message = final ? 'Reached the review/submit step — check everything and submit yourself.' : summary(fields);
         break;
       }
-      if (blocking.length) {
+      const blockedMsg = `Stopped on page ${page}: ${blocking.length} required field(s) need you. Fix them, then press Fill again to continue.`;
+      // Autopilot lets the site decide what's really required: press Next anyway, and only stop
+      // if the site refuses. (A flag can be ours alone: a phone's country picker, a value we couldn't read back.)
+      const tryAnyway = blocking.length > 0 && !!opts.autopilot;
+      if (blocking.length && !tryAnyway) {
         report.stop = 'blocked';
-        report.message = `Stopped on page ${page}: ${blocking.length} required field(s) need you. Fix them, then press Fill again to continue.`;
+        report.message = blockedMsg;
         break;
       }
       checkCancel();
@@ -100,6 +104,11 @@ export async function run(opts: RunOptions): Promise<FillReport> {
         timeout: 15000,
         interval: 250,
       });
+      if (moved !== 'moved' && tryAnyway) {
+        report.stop = 'blocked';
+        report.message = blockedMsg;
+        break;
+      }
       if (moved !== 'moved') {
         report.stop = moved === 'error' ? 'errors' : 'not-moved';
         report.message = moved === 'error' ? `Page ${page} has validation errors — fix them, then press Fill again.` : `Clicked Next on page ${page}, but the page didn't change.`;

@@ -241,6 +241,29 @@ describe('a job, start to finish', () => {
     expect(state().pausedReason).toMatch(/waiting on you/);
   });
 
+  it('Continue starts the runner again and fills only empty fields on that page', async () => {
+    const tab = await start();
+    tabs.get(tab)!.url = 'https://acme.com/apply/contact';
+    setPage(tab, 'form');
+    await runner.doStep();
+    await result({ kind: 'needs-you', reason: '1 required question(s) need you' });
+    await runner.pauseRunner('Queue finished');
+    expect(state().running).toBe(false);
+
+    await runner.queueAction({ action: 'continue', id: job().id });
+    await vi.advanceTimersByTimeAsync(1000);
+    await settle();
+    expect(state().running).toBe(true);
+    expect(job()).toMatchObject({ status: 'running', tabId: tab });
+    await runner.doStep();
+    expect(sentSteps.at(-1)!.msg).toMatchObject({ onlyEmpty: true });
+    // A later page in the same job gets a full fill again.
+    await result({ kind: 'acted', action: 'Pressed Next' });
+    tabs.get(tab)!.url = 'https://acme.com/apply/questions';
+    await runner.doStep();
+    expect(sentSteps.at(-1)!.msg).toMatchObject({ onlyEmpty: false });
+  });
+
   it('Pause puts the running job back at the front, keeping its tab', async () => {
     const tab = await start();
     await runner.pauseRunner('Paused by you');

@@ -264,6 +264,28 @@ function queriesFor(d: Desired): string[] {
   return qs.slice(0, 3);
 }
 
+/**
+ * Does the box around this dropdown (up to the nearest ancestor holding another field) now show
+ * `chosen`? Option lists are left out, so an open list doesn't count.
+ */
+function boxShows(trigger: HTMLElement, chosen: string): boolean {
+  const want = ` ${norm(chosen)} `;
+  if (want.trim().length < 2) return false;
+  let box: HTMLElement = trigger;
+  for (let i = 0; i < 4 && box.parentElement; i++) {
+    const up = box.parentElement;
+    const others = Array.from(up.querySelectorAll('input:not([type="hidden"]), select, textarea, [role="combobox"], button[aria-haspopup]')).filter(
+      (x) => x !== trigger && !trigger.contains(x) && !x.contains(trigger),
+    );
+    if (others.length) break;
+    box = up;
+    const clone = box.cloneNode(true) as HTMLElement;
+    clone.querySelectorAll(`${OPTION_SEL}, [role="listbox"], label`).forEach((n) => n.remove());
+    if (` ${norm(clone.textContent ?? '')} `.includes(want)) return true;
+  }
+  return false;
+}
+
 function displayMatches(display: string, d: Desired, chosen: string): boolean {
   if (!display) return false;
   const n = norm(display);
@@ -335,6 +357,9 @@ async function fillCombobox(f: Field, d: Desired, overwrite: boolean): Promise<W
         continue;
       }
       closeDropdown(trigger);
+      await sleep(150);
+      // Many dropdowns show the choice in a sibling node: look in the field's own box.
+      if (boxShows(trigger, chosen)) return { ok: true, value: chosen, match: m.score };
       // Selected but the widget shows the value somewhere we can't see.
       if (!isOpen(trigger)) return { ok: true, value: chosen, match: Math.min(m.score, 0.7), reason: "Selected, but couldn't read it back — check it" };
       break;

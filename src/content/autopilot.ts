@@ -80,6 +80,8 @@ export interface StepRequest {
   accountKnown: boolean;
   /** 'guide': the rules are stuck here; ask the AI which button moves the application on. */
   mode?: 'guide';
+  /** You fixed things on this page and pressed Continue: fill only empty fields. */
+  onlyEmpty?: boolean;
 }
 
 export async function step(req: StepRequest, onReport: (r: FillReport) => void): Promise<StepOutcome> {
@@ -222,7 +224,7 @@ async function formStep(req: StepRequest, onReport: (r: FillReport) => void): Pr
     profile: setup.profile,
     resume: setup.resume,
     learned: setup.learned,
-    overwrite: true,
+    overwrite: !req.onlyEmpty,
     autoAdvance: true,
     learn: false,
     autopilot: true,

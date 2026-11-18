@@ -15,6 +15,8 @@ interface Rule {
 
 // Order matters: specific rules before general ones.
 const RULES: Rule[] = [
+  // Optional extras (texts about the application, newsletters, talent communities): never ticked for you.
+  { key: 'optIn', label: /\btext messages?\b|\bsms\b|\bmarketing\b|newsletter|promotional|job alerts?|talent (community|network|pool)|keep me (informed|updated|posted)|receive (e ?mails?|updates|communications|notifications|texts|alerts)|\bopt[ -]?in\b/ },
   { key: 'consent', label: /\bi (have read|agree|acknowledge|consent|certify|accept|understand)\b|privacy (policy|notice)|terms (of|and)|\bconsent\b/ },
   { key: 'coverLetter', label: /cover letter/, attr: /cover letter/ },
   { key: 'resume', label: /\b(resume|cv|curriculum vitae)\b/, attr: /\bresume\b|\bcv\b/, short: true },
@@ -212,6 +214,16 @@ export function resolve(c: Classification, p: Profile, field: Field): Resolution
   const fullName = [per.firstName, per.middleName, per.lastName].filter(Boolean).join(' ');
   const t = (text: string | undefined, alts?: string[]): Resolution =>
     text ? { desired: { text, alts } } : { flag: `No "${c.key}" in your profile` };
+  const phoneCountry = (): Resolution => {
+    const code = per.phoneCountryCode ?? '+1';
+    return t(per.country ?? 'United States', [
+      `${per.country ?? 'United States'} (${code})`,
+      `${per.country ?? 'United States'} ${code}`,
+      `United States of America (${code})`,
+      code,
+      ...(COUNTRY_ALTS[per.country ?? 'United States'] ?? []),
+    ]);
+  };
 
   switch (c.key) {
     case 'answer': {
@@ -222,6 +234,8 @@ export function resolve(c: Classification, p: Profile, field: Field): Resolution
     }
     case 'skip':
       return { skip: 'Not needed' };
+    case 'optIn':
+      return field.required ? { flag: 'Opt-in marked required — decide yourself' } : { skip: 'Optional opt-in — left as it was' };
     case 'consent':
       return { flag: 'Consent/acknowledgement — please read and check it yourself' };
     case 'coverLetter':
@@ -248,16 +262,15 @@ export function resolve(c: Classification, p: Profile, field: Field): Resolution
       return p.account?.password ? { desired: { text: p.account.password } } : { flag: 'Save your job-site password in Options → Job site login' };
     case 'phoneType':
       return t(per.phoneType ?? 'Mobile', ['Cell', 'Mobile Phone', 'Cell Phone', 'Personal Mobile', 'Personal']);
-    case 'phoneCountryCode': {
-      const code = per.phoneCountryCode ?? '+1';
-      return t(per.country ?? 'United States', [
-        `${per.country ?? 'United States'} (${code})`,
-        `United States of America (${code})`,
-        code,
-        ...(COUNTRY_ALTS[per.country ?? 'United States'] ?? []),
-      ]);
-    }
+    case 'phoneCountryCode':
+      return phoneCountry();
     case 'phone':
+      // The flag / country-code dropdown next to a phone box carries the same label ("Mobile Number *").
+      if (field.kind === 'select' || field.kind === 'combobox' || field.kind === 'buttonGroup') return phoneCountry();
+      // A second, optional number (home, work…): leave it blank.
+      if (!field.required && /\b(home|work|office|business|alternate|alt|other|secondary|additional|landline|fax|evening|day ?time)\b/.test(lnorm)) {
+        return { skip: 'Optional extra phone number — left blank' };
+      }
       return t(per.phone);
     case 'linkedin':
       return t(per.linkedin);
