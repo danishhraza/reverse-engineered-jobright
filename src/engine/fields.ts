@@ -66,6 +66,8 @@ export function stripLabel(s: string): string {
     s
       .replace(/\(\s*(required|optional)\s*\)/gi, '')
       .replace(/[*✱]/g, '')
+      // After a failed Next, labels turn into errors: "City is required", "Address Line 1 is invalid".
+      .replace(/\s+(is|are) (required|mandatory|invalid|missing|not valid)\b.*$/i, '')
       .replace(/\s*required\s*$/i, ''),
   ).slice(0, 400);
 }
@@ -522,9 +524,37 @@ export function comboboxDisplay(el: HTMLElement): string {
   const container = el.closest('[class*="container"], [class*="select"], [data-automation-id^="formField-"], .field') ?? el.parentElement;
   const single = container?.querySelector('[class*="single-value"], [class*="singleValue"], [data-automation-id="selectedItem"], [class*="multi-value__label"]');
   if (single) return cleanText(single);
-  if (el.tagName === 'BUTTON') {
+  if (el.tagName !== 'INPUT') {
     const t = cleanText(el);
-    return PLACEHOLDER.test(t) ? '' : t;
+    if (t && !PLACEHOLDER.test(t) && t.length < 80) return t;
   }
-  return '';
+  // Shown next to the control (ADP and other custom selects).
+  return valueBoxText(el);
+}
+
+/**
+ * The text a custom dropdown shows next to itself: the box around the control (never reaching
+ * its label or another field), minus option lists, error/help text and placeholders.
+ */
+export function valueBoxText(el: HTMLElement): string {
+  const labelIds = (el.getAttribute('aria-labelledby') ?? '').split(/\s+/).filter(Boolean);
+  let box: HTMLElement = el;
+  let found = '';
+  for (let i = 0; i < 3 && box.parentElement; i++) {
+    const up = box.parentElement;
+    if (up.matches('form, body, fieldset')) break;
+    if (up.querySelector('label, legend, h1, h2, h3, h4, h5, h6') || labelIds.some((id) => up.contains(document.getElementById(id)))) break;
+    const others = Array.from(up.querySelectorAll('input:not([type="hidden"]), select, textarea, [role="combobox"], button[aria-haspopup]')).filter(
+      (x) => x !== el && !el.contains(x) && !x.contains(el),
+    );
+    if (others.length) break;
+    box = up;
+    const clone = box.cloneNode(true) as HTMLElement;
+    clone
+      .querySelectorAll('[role="option"], [role="listbox"], [role="alert"], [aria-live], [class*="error" i], [class*="help" i], [class*="hint" i], [hidden], .rej-ui')
+      .forEach((n) => n.remove());
+    const t = squash(clone.textContent ?? '').replace(/[▾▼⌄⌃▲]/g, '').trim();
+    if (t && !PLACEHOLDER.test(t) && t.length < 80) found = t;
+  }
+  return found;
 }

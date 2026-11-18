@@ -26,6 +26,8 @@ export interface PageFillOptions {
   ai?: AiAsk;
   /** Tick "I agree / I certify" boxes instead of flagging them (autopilot). */
   agreeToTerms?: boolean;
+  /** Picking up after you (Continue): fill only required fields that are still empty. */
+  requiredOnly?: boolean;
 }
 
 export interface AiQuestion {
@@ -63,16 +65,19 @@ export async function fillPage(opts: PageFillOptions): Promise<FieldReport[]> {
   await waitForSettle(400, 3000);
   checkCancel();
 
-  // 1. Resume.
+  // 1. Resume. (Picking up after you: only if a required resume box is still empty.)
   const initial = scanFields();
-  const resumeRow = await uploadResume(initial, opts);
+  const resumeNeeded = !opts.requiredOnly || initial.some((f) => f.kind === 'file' && f.required && !currentValue(f) && !/cover/i.test(f.label));
+  const resumeRow = resumeNeeded ? await uploadResume(initial, opts) : null;
   if (resumeRow) {
     rows.push(resumeRow);
     emit();
   }
 
-  // 2. Adapter-specific sections (Workday work/education entries, etc).
-  if (adapter.fillSpecial) {
+  // 2. Adapter-specific sections (Workday work/education entries, etc). Not when picking up after you.
+  if (opts.requiredOnly) {
+    // nothing: you've been through this page
+  } else if (adapter.fillSpecial) {
     checkCancel();
     try {
       await adapter.fillSpecial(ctx);
@@ -121,6 +126,8 @@ export async function fillPage(opts: PageFillOptions): Promise<FieldReport[]> {
         if (f.required && !currentValue(f)) rows.push(row(f, 'flagged', 0, undefined, 'File upload needed'));
         continue;
       }
+      // Picking up after you: leave everything you saw alone except required boxes still empty.
+      if (opts.requiredOnly && (!f.required || currentValue(f))) continue;
       const r = await fillOne(f, opts);
       if (r) {
         rows.push(r);

@@ -1,6 +1,6 @@
 import { cleanText, isVisible, pressKey, realClick, setNativeValue, sleep, squash, typeText, waitFor, waitForSettle } from './dom';
 import { checkCancel, isCancelled, status } from './control';
-import { clickTarget, comboboxDisplay, currentValue, isChecked, shadowHost, type Field } from './fields';
+import { clickTarget, comboboxDisplay, currentValue, isChecked, shadowHost, valueBoxText, type Field } from './fields';
 import { isPlaceholderOption, jaccard, matchOption, norm, type Desired } from './match';
 
 // One function per widget kind. Each returns how confident we are that the
@@ -32,6 +32,7 @@ export async function fillField(f: Field, d: Desired, overwrite: boolean): Promi
     if (cur) return { ok: true, value: cur, match: 1, skipped: true, reason: 'Already filled' };
   }
   if (d.multi && d.multi.length > 1 && (f.kind === 'combobox' || (f.kind === 'text' && isTagInput(f.el)))) return fillTags(f, d.multi);
+  if ((f.kind === 'text' || f.kind === 'combobox') && isPlacesInput(f.el)) return fillPlaces(f, d, overwrite);
   switch (f.kind) {
     case 'text':
     case 'textarea':
@@ -274,20 +275,7 @@ function queriesFor(d: Desired): string[] {
  */
 function boxShows(trigger: HTMLElement, chosen: string): boolean {
   const want = ` ${norm(chosen)} `;
-  if (want.trim().length < 2) return false;
-  let box: HTMLElement = trigger;
-  for (let i = 0; i < 4 && box.parentElement; i++) {
-    const up = box.parentElement;
-    const others = Array.from(up.querySelectorAll('input:not([type="hidden"]), select, textarea, [role="combobox"], button[aria-haspopup]')).filter(
-      (x) => x !== trigger && !trigger.contains(x) && !x.contains(trigger),
-    );
-    if (others.length) break;
-    box = up;
-    const clone = box.cloneNode(true) as HTMLElement;
-    clone.querySelectorAll(`${OPTION_SEL}, [role="listbox"], label`).forEach((n) => n.remove());
-    if (` ${norm(clone.textContent ?? '')} `.includes(want)) return true;
-  }
-  return false;
+  return want.trim().length >= 2 && ` ${norm(valueBoxText(trigger))} `.includes(want);
 }
 
 function displayMatches(display: string, d: Desired, chosen: string): boolean {
@@ -498,4 +486,53 @@ async function fillTags(f: Field, items: string[]): Promise<WidgetResult> {
     match: missed.length ? 0.9 : 1,
     reason: missed.length ? `Not in the site's list: ${missed.join(', ')}${rest}` : rest.trim() || undefined,
   };
+}
+
+// ---------- Address boxes with suggestions (Google Places) ----------
+
+/** Google's address autocomplete marks its input and uses the placeholder "Enter a location". */
+function isPlacesInput(el: HTMLElement): boolean {
+  return el.tagName === 'INPUT' && (el.classList.contains('pac-target-input') || /^enter a location$/i.test(el.getAttribute('placeholder') ?? ''));
+}
+
+function placesSuggestions(): HTMLElement[] {
+  return Array.from(document.querySelectorAll<HTMLElement>('.pac-container .pac-item')).filter((i) => isVisible(i));
+}
+
+/**
+ * Type the address and pick a suggestion: the site fills City / State / Zip from it, and some
+ * (ADP) don't accept the address at all without one.
+ */
+async function fillPlaces(f: Field, d: Desired, overwrite: boolean): Promise<WidgetResult> {
+  const el = f.el as HTMLInputElement;
+  const cur = el.value.trim();
+  if (cur && !overwrite) return { ok: true, value: cur, match: 1, skipped: true, reason: 'Already filled' };
+  if (cur && norm(cur).startsWith(norm(d.text))) return { ok: true, value: cur, match: 1 };
+  const query = d.query ?? d.text;
+  status(`${fieldName(f)}: looking up "${query}"…`);
+  el.focus({ preventScroll: true });
+  typeText(el, query);
+  const items = await waitFor(() => {
+    const s = placesSuggestions();
+    return s.length ? s : null;
+  }, { timeout: 5000 });
+  if (!items) {
+    setNativeValue(el, d.text);
+    el.dispatchEvent(new FocusEvent('blur'));
+    return { ok: true, value: d.text, match: 0.8, reason: 'No address suggestions appeared — typed it in; check it' };
+  }
+  const best = items.map((i) => ({ i, s: jaccard(cleanText(i), query) })).sort((a, b) => b.s - a.s)[0].i;
+  realClick(best);
+  let picked = await waitFor(() => !placesSuggestions().length && el.value.trim() !== query && el.value.trim(), { timeout: 2500 });
+  if (!picked) {
+    // Keyboard fallback: highlight the first suggestion and press Enter.
+    pressKey(el, 'ArrowDown');
+    pressKey(el, 'Enter');
+    picked = await waitFor(() => !placesSuggestions().length && el.value.trim(), { timeout: 2500 });
+  }
+  // The site fills the rest of the address from the choice.
+  await waitForSettle(400, 3000);
+  return picked
+    ? { ok: true, value: el.value, match: 0.95 }
+    : { ok: true, value: el.value, match: 0.7, reason: "Picked an address suggestion but couldn't confirm it — check it" };
 }

@@ -283,7 +283,8 @@ export function resolve(c: Classification, p: Profile, field: Field): Resolution
     case 'portfolio':
       return t(per.portfolio || per.website || per.github);
     case 'address1':
-      return t(per.address1);
+      // Address boxes with suggestions (Google Places) find the right one faster with the city.
+      return per.address1 ? { desired: { text: per.address1, query: [per.address1, per.city, per.stateCode || per.state].filter(Boolean).join(', ') } } : t(per.address1);
     case 'address2':
       return per.address2 ? t(per.address2) : { skip: 'No address line 2' };
     case 'postalCode':

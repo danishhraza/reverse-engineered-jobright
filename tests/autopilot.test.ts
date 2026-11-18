@@ -229,6 +229,80 @@ describe('Next anyway (autopilot)', () => {
   }, 40000);
 });
 
+describe('ADP address block', () => {
+  let countryClicks = 0;
+  /** Country is a custom dropdown showing its value beside itself; picking a country resets the address below. */
+  function page(addressFilled: boolean) {
+    countryClicks = 0;
+    document.body.innerHTML = `
+      <form>
+        <div class="f"><label id="cl">Country *</label>
+          <div class="sel"><div role="combobox" aria-haspopup="listbox" aria-labelledby="cl" tabindex="0" id="cty"></div><span class="val">United States</span><span>▾</span></div></div>
+        <div class="f"><label for="a1">Address Line 1 is required *</label><input id="a1" placeholder="Enter a location" required></div>
+        <div class="f"><label for="a2">Address Line 2</label><input id="a2"></div>
+        <div class="f"><label for="city">City is required *</label><input id="city" required></div>
+        <div class="f"><label for="zip">Zip Code is required *</label><input id="zip" required></div>
+        <div class="f"><label for="county">County</label><input id="county"></div>
+      </form>`;
+    document.getElementById('cty')!.addEventListener('click', () => {
+      countryClicks++;
+      for (const id of ['a1', 'city', 'zip', 'county']) (document.getElementById(id) as HTMLInputElement).value = '';
+    });
+    // Google Places: typing shows suggestions; picking one fills the street, city and zip.
+    const a1 = document.getElementById('a1') as HTMLInputElement;
+    a1.addEventListener('input', () => {
+      document.querySelector('.pac-container')?.remove();
+      if (!a1.value) return;
+      const box = document.createElement('div');
+      box.className = 'pac-container';
+      box.innerHTML = '<div class="pac-item">100 Main Street, Springfield, IL, USA</div><div class="pac-item">100 Main Street, Boston, MA, USA</div>';
+      for (const item of Array.from(box.querySelectorAll('.pac-item'))) {
+        item.addEventListener('mousedown', () => {
+          a1.value = item.textContent!.split(',')[0];
+          (document.getElementById('city') as HTMLInputElement).value = item.textContent!.split(', ')[1];
+          (document.getElementById('zip') as HTMLInputElement).value = '62701';
+          box.remove();
+        });
+      }
+      document.body.appendChild(box);
+    });
+    if (addressFilled) a1.value = '100 Main Street';
+  }
+
+  it('reads labels that turned into errors ("City is required")', async () => {
+    const { stripLabel } = await import('../src/engine/fields');
+    expect(stripLabel('City is required*')).toBe('City');
+    expect(stripLabel('Address Line 1 is required *')).toBe('Address Line 1');
+  });
+
+  it('sees the Country that is already chosen, and never picks it again', async () => {
+    const { comboboxDisplay } = await import('../src/engine/fields');
+    page(false);
+    expect(comboboxDisplay(document.getElementById('cty')!)).toBe('United States');
+    await run({ ...base, profile: exampleProfile('swe'), autoAdvance: false });
+    expect(countryClicks).toBe(0);
+  }, 40000);
+
+  it('picks the matching address suggestion, which fills city and zip', async () => {
+    page(false);
+    await run({ ...base, profile: exampleProfile('swe'), autoAdvance: false });
+    expect((document.getElementById('a1') as HTMLInputElement).value).toBe('100 Main Street');
+    expect((document.getElementById('city') as HTMLInputElement).value).toBe('Springfield');
+    expect((document.getElementById('zip') as HTMLInputElement).value).toBe('62701');
+  }, 40000);
+
+  it('on Continue: fills only required empty boxes, leaves optional ones and your answers alone', async () => {
+    page(true);
+    (document.getElementById('zip') as HTMLInputElement).value = '99999'; // you typed this
+    await run({ ...base, profile: exampleProfile('swe'), autoAdvance: false, requiredOnly: true });
+    expect(countryClicks).toBe(0);
+    expect((document.getElementById('a1') as HTMLInputElement).value).toBe('100 Main Street');
+    expect((document.getElementById('city') as HTMLInputElement).value).toBe('Springfield');
+    expect((document.getElementById('zip') as HTMLInputElement).value).toBe('99999');
+    expect((document.getElementById('a2') as HTMLInputElement).value).toBe('');
+  }, 40000);
+});
+
 describe('ADP-style questions page', () => {
   // <x-radio>Yes</x-radio>: each radio is a web component with its own <input> in a shadow root.
   class XRadio extends HTMLElement {

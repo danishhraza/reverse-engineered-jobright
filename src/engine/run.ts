@@ -34,6 +34,8 @@ export interface RunOptions {
   agreeToTerms?: boolean;
   /** Autopilot: also find Next/Submit on sites without an adapter. */
   autopilot?: boolean;
+  /** Picking up after you (Continue): on the first page, fill only required fields that are still empty. */
+  requiredOnly?: boolean;
 }
 
 const MAX_PAGES = 10;
@@ -61,9 +63,11 @@ export async function run(opts: RunOptions): Promise<FillReport> {
         resume: opts.resume,
         adapter,
         learned: opts.learned,
-        overwrite: opts.overwrite,
         ai: opts.ai,
         agreeToTerms: opts.agreeToTerms,
+        // Only the page you were on; pages after it get a normal fill.
+        requiredOnly: opts.requiredOnly && page === (opts.startPage ?? 1),
+        overwrite: opts.requiredOnly && page === (opts.startPage ?? 1) ? false : opts.overwrite,
         onNavigate: () => opts.onNavigate?.(page),
         onProgress: (r) => {
           rows = r;
