@@ -38,7 +38,7 @@ async function tabAlive(tabId?: number): Promise<chrome.tabs.Tab | null> {
 
 function log(job: QueueJob, line: string): void {
   const t = new Date().toTimeString().slice(0, 5);
-  job.log = [...(job.log ?? []), `${t} ${line}`].slice(-12);
+  job.log = [...(job.log ?? []), `${t} ${line}`].slice(-60);
   job.updatedAt = now();
 }
 
@@ -398,6 +398,45 @@ async function finish(st: RunnerState, job: QueueJob, status: JobStatus, reason:
     });
   }
   if (st.running) await scheduleNext(rand(ap.delayMinSec, ap.delayMaxSec) * 1000);
+}
+
+// ---------- AI calls, logged on the job they were for ----------
+
+export interface AiCall {
+  what: string;
+  result: string;
+  usage?: { tokensIn: number; tokensOut: number; cost?: number };
+}
+
+/** Log an AI call on the job whose tab made it, and add it to the job's totals. Calls from tabs outside Autopilot aren't logged. */
+export function recordAi(tabId: number, call: AiCall): Promise<void> {
+  return locked(async () => {
+    const q = await getQueue();
+    const j = q.find((x) => x.tabId === tabId);
+    if (!j) return;
+    const u = call.usage;
+    if (u) {
+      const t = (j.ai ??= { calls: 0, tokensIn: 0, tokensOut: 0, cost: 0 });
+      t.calls++;
+      t.tokensIn += u.tokensIn;
+      t.tokensOut += u.tokensOut;
+      t.cost += u.cost ?? 0;
+    }
+    const spend = u ? ` · ${u.tokensIn + u.tokensOut} tokens${u.cost !== undefined ? ` · $${u.cost.toFixed(5)}` : ''}` : '';
+    log(j, `AI: "${call.what.slice(0, 60)}" → ${call.result.slice(0, 100)}${spend}`);
+    await saveQueue(q);
+  });
+}
+
+/** Add a line to the log of the job whose tab this is. */
+export function noteOnJob(tabId: number, line: string): Promise<void> {
+  return locked(async () => {
+    const q = await getQueue();
+    const j = q.find((x) => x.tabId === tabId);
+    if (!j) return;
+    log(j, line);
+    await saveQueue(q);
+  });
 }
 
 // ---------- Ready jobs you didn't get to in time ----------

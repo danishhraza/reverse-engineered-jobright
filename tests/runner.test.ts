@@ -301,6 +301,16 @@ describe('a job, start to finish', () => {
     expect(submitAsks).toEqual([]);
   });
 
+  it('logs each AI call on the job and adds up tokens and cost', async () => {
+    const tab = await start();
+    await runner.recordAi(tab, { what: 'Field of Study', result: '"Computer and Information Science" (0.9)', usage: { tokensIn: 1200, tokensOut: 40, cost: 0.00014 } });
+    await runner.recordAi(tab, { what: 'Do you have relatives at Trane?', result: '"No" (0.95)', usage: { tokensIn: 1100, tokensOut: 30, cost: 0.00012 } });
+    await runner.recordAi(tab, { what: 'Same question again', result: '"No" (0.95, reused)' });
+    expect(job().ai).toEqual({ calls: 2, tokensIn: 2300, tokensOut: 70, cost: expect.closeTo(0.00026, 8) });
+    expect(job().log.filter((l) => l.includes('AI:'))).toHaveLength(3);
+    expect(job().log.find((l) => l.includes('Field of Study'))).toMatch(/1240 tokens · \$0\.00014/);
+  });
+
   it('Pause puts the running job back at the front, keeping its tab', async () => {
     const tab = await start();
     await runner.pauseRunner('Paused by you');

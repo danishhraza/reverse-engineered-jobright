@@ -117,6 +117,21 @@ async function startSingle(profileId?: string): Promise<{ started: boolean; reas
   return { started: true };
 }
 
+/** Autopilot works in this tab: the page-world script (dialogs.ts) answers alert/confirm here from now on. */
+function markAutopilotTab(): void {
+  try {
+    sessionStorage.setItem('rej-autopilot', '1');
+  } catch {
+    // storage blocked
+  }
+}
+
+// Dialogs answered by dialogs.ts: put them in the job's log.
+window.addEventListener('message', (e) => {
+  if (e.source !== window || e.data?.source !== 'rej-dialog') return;
+  send({ type: 'dialog', kind: e.data.kind, message: e.data.message, answer: e.data.answer });
+});
+
 function send(msg: unknown): void {
   try {
     chrome.runtime.sendMessage(msg).catch(() => {});
@@ -140,6 +155,7 @@ chrome.runtime.onMessage.addListener((msg: Msg, _sender, reply) => {
   }
   if (msg.type === 'submitReady') {
     reply({ ok: true });
+    markAutopilotTab();
     submitReady(msg.profileId, (report) => send({ type: 'report', report }))
       .then((outcome) => outcome && send({ type: 'readyResult', jobId: msg.jobId, outcome }))
       .catch((e) => send({ type: 'readyResult', jobId: msg.jobId, outcome: { kind: 'needs-you', reason: `Error: ${e?.message ?? e}` } }));
@@ -152,6 +168,7 @@ chrome.runtime.onMessage.addListener((msg: Msg, _sender, reply) => {
   if (msg.type === 'autoStep') {
     // Answer now; the result comes back as its own message (a step can take minutes).
     reply({ ok: true });
+    markAutopilotTab();
     stopping = false;
     step(msg, (report) => {
       lastReport = report;

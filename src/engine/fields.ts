@@ -1,4 +1,5 @@
 import { cleanText, isVisible, squash } from './dom';
+import { isPlaceholderOption } from './match';
 
 // Field discovery: turn the page's inputs, selects, custom dropdowns, radio
 // groups and Yes/No button groups into one list of Field descriptors, each
@@ -497,7 +498,8 @@ export function currentValue(f: Field): string {
     case 'select': {
       const s = el as HTMLSelectElement;
       const opt = s.selectedOptions?.[0];
-      return opt && opt.value !== '' ? squash(opt.textContent ?? '') : '';
+      // "Please Select" (even with a value behind it) means nothing is chosen yet.
+      return opt && opt.value !== '' && !isPlaceholderOption(opt.textContent ?? '') ? squash(opt.textContent ?? '') : '';
     }
     case 'radio':
     case 'checkboxGroup':

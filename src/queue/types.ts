@@ -37,6 +37,8 @@ export interface QueueJob {
   appliedAt?: number;
   /** Ready jobs: when it will be submitted for you if you haven't (review mode with a time limit). */
   submitAt?: number;
+  /** AI calls made while applying: count, tokens, and dollars when OpenRouter reports them. */
+  ai?: { calls: number; tokensIn: number; tokensOut: number; cost: number };
   /** Last few things the runner did, newest last. */
   log: string[];
 }

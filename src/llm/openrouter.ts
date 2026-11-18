@@ -85,10 +85,17 @@ async function post(s: LlmSettings, body: object): Promise<{ status: number; jso
   }
 }
 
+/** Tokens and (when OpenRouter reports it) dollars for one call. */
+export interface Usage {
+  tokensIn: number;
+  tokensOut: number;
+  cost?: number;
+}
+
 /** Ask the model. Retries rate limits / provider errors twice; falls back to plain JSON if the model can't do structured output. */
-export async function askModel(s: LlmSettings, q: AiQuestion, ctx: AskContext): Promise<AiAnswer | null> {
-  const text = await complete(s, SYSTEM, buildPrompt(q, ctx, s.standing), 'answer', SCHEMA);
-  return parseAnswer(text);
+export async function askModel(s: LlmSettings, q: AiQuestion, ctx: AskContext): Promise<{ answer: AiAnswer | null; usage: Usage }> {
+  const { text, usage } = await complete(s, SYSTEM, buildPrompt(q, ctx, s.standing), 'answer', SCHEMA);
+  return { answer: parseAnswer(text), usage };
 }
 
 // ---------- Which button gets the application moving ----------
@@ -151,12 +158,13 @@ export function parseGuide(text: string, count: number): GuideAnswer | null {
   }
 }
 
-export async function askGuide(s: LlmSettings, page: GuidePage): Promise<GuideAnswer | null> {
-  return parseGuide(await complete(s, GUIDE_SYSTEM, buildGuidePrompt(page), 'click', GUIDE_SCHEMA), page.buttons.length);
+export async function askGuide(s: LlmSettings, page: GuidePage): Promise<{ answer: GuideAnswer | null; usage: Usage }> {
+  const { text, usage } = await complete(s, GUIDE_SYSTEM, buildGuidePrompt(page), 'click', GUIDE_SCHEMA);
+  return { answer: parseGuide(text, page.buttons.length), usage };
 }
 
-/** One chat completion; returns the reply text. */
-async function complete(s: LlmSettings, system: string, user: string, schemaName: string, schema: object): Promise<string> {
+/** One chat completion; returns the reply text and what it cost. */
+async function complete(s: LlmSettings, system: string, user: string, schemaName: string, schema: object): Promise<{ text: string; usage: Usage }> {
   if (!s.apiKey) throw new LlmError('No OpenRouter key — add it in Options');
   const base = {
     model: s.model,
@@ -170,7 +178,13 @@ async function complete(s: LlmSettings, system: string, user: string, schemaName
   for (let attempt = 0; attempt < 3; attempt++) {
     const body = structured ? { ...base, response_format: { type: 'json_schema', json_schema: { name: schemaName, strict: true, schema } } } : base;
     const { status, json } = await post(s, body);
-    if (status === 200) return json?.choices?.[0]?.message?.content ?? '';
+    if (status === 200) {
+      const u = json?.usage ?? {};
+      return {
+        text: json?.choices?.[0]?.message?.content ?? '',
+        usage: { tokensIn: Number(u.prompt_tokens) || 0, tokensOut: Number(u.completion_tokens) || 0, cost: typeof u.cost === 'number' ? u.cost : undefined },
+      };
+    }
     const msg: string = json?.error?.message ?? `HTTP ${status}`;
     if ((status === 400 || status === 422) && structured && /response_format|structured|json_schema|schema/i.test(msg)) {
       structured = false;

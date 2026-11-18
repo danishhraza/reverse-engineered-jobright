@@ -41,6 +41,8 @@ const options = {
   entryPoints: {
     background: 'src/background.ts',
     content: 'src/content/index.ts',
+    // Page-world script: answers alert/confirm in Autopilot tabs.
+    dialogs: 'src/content/dialogs.ts',
     sidepanel: 'src/ui/sidepanel.ts',
     options: 'src/ui/options.ts',
     queue: 'src/ui/queue.ts',

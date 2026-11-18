@@ -103,6 +103,8 @@ export async function fillEntryField<T>(
   resolver: EntryResolver<T>,
   overwrite: boolean,
   fallback?: (f: Field) => Promise<FieldReport | null>,
+  /** The AI picks the closest option when our answer isn't in the list ("Computer Science" -> "Computer and Information Science"). */
+  aiPick?: (f: Field, note: string) => Promise<FieldReport | null>,
 ): Promise<FieldReport | null> {
   const d = resolver(f, norm(f.label), entry);
   const rowLabel = `${name}: ${f.label || f.hints}`;
@@ -124,5 +126,9 @@ export async function fillEntryField<T>(
   const conf = 0.9 * r.match;
   const status: FieldReport['status'] = !r.ok ? 'flagged' : r.skipped ? 'skipped' : conf < 0.75 ? 'flagged' : 'filled';
   await waitForSettle(150, 800);
+  if (status === 'flagged' && aiPick && (f.kind === 'select' || f.kind === 'combobox' || f.choices?.length) && !currentValue(f)) {
+    const ai = await aiPick(f, `This is for ${name}. The answer is "${d.text}"${d.alts?.length ? ` (also written ${d.alts.slice(0, 3).join(', ')})` : ''}, which isn't one of the options: pick the closest one.`);
+    if (ai?.status === 'filled') return { ...ai, label: rowLabel };
+  }
   return { id: f.id, label: rowLabel, status, confidence: Math.round(conf * 100) / 100, value: r.value, reason: r.reason, required: f.required };
 }

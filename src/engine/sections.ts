@@ -133,6 +133,8 @@ export interface SectionFillOptions {
   onRow: (r: FieldReport) => void;
   /** The generic engine, for fields in a block that aren't about the entry ("Highest degree obtained"). */
   fallback: (f: Field) => Promise<FieldReport | null>;
+  /** The AI picks the closest option when the profile's answer isn't in the list. */
+  aiPick?: (f: Field, note: string) => Promise<FieldReport | null>;
 }
 
 export async function fillSections(opts: SectionFillOptions): Promise<void> {
@@ -170,7 +172,7 @@ export async function fillSections(opts: SectionFillOptions): Promise<void> {
           done.add(f.id);
           opts.handled.add(f.id);
           status(`${kind.name} ${i + 1} of ${entries.length}: ${f.label || 'field'}…`);
-          const r = await fillEntryField(f, `${kind.name} ${i + 1}`, entries[i], kind.resolver, opts.overwrite, opts.fallback);
+          const r = await fillEntryField(f, `${kind.name} ${i + 1}`, entries[i], kind.resolver, opts.overwrite, opts.fallback, opts.aiPick);
           if (r) opts.onRow(r);
         }
         await waitForSettle(200, 1000);

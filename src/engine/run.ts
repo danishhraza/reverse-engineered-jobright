@@ -4,7 +4,7 @@ import { begin, Cancelled, checkCancel, end, status } from './control';
 import { cleanText, isVisible, realClick, sleep, waitFor, waitForSettle } from './dom';
 import { currentValue, fieldFor, findById, scanFields } from './fields';
 import { fillPage, fillSingle, type AiAsk } from './fill';
-import { genericFinal, genericNext, genericSignature } from './nav';
+import { disabledNext, genericFinal, genericNext, genericSignature } from './nav';
 
 /** A visible error banner or invalid-field message after pressing Next (sites without an adapter). */
 function pageErrors(): boolean {
@@ -84,8 +84,14 @@ export async function run(opts: RunOptions): Promise<FillReport> {
       const next = adapter.nextButton?.() ?? (generic ? genericNext() : null);
       const final = adapter.isFinalPage?.() ?? (generic ? genericFinal() : false);
       if (!opts.autoAdvance || !next || final) {
-        report.stop = final ? 'final' : blocking.length ? 'blocked' : 'no-next';
-        report.message = final ? 'Reached the review/submit step — check everything and submit yourself.' : summary(fields);
+        // A greyed-out Next means the site still wants something on this page.
+        const greyed = !final && !next && generic && !!disabledNext();
+        report.stop = final ? 'final' : blocking.length || greyed ? 'blocked' : 'no-next';
+        report.message = final
+          ? 'Reached the review/submit step — check everything and submit yourself.'
+          : greyed
+            ? `Next is greyed out — something required on page ${page} is still missing.${blocking.length ? '' : ' ' + summary(fields)}`
+            : summary(fields);
         break;
       }
       const blockedMsg = `Stopped on page ${page}: ${blocking.length} required field(s) need you. Fix them, then press Fill again to continue.`;

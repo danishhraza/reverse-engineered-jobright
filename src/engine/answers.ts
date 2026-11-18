@@ -372,10 +372,21 @@ export function resolve(c: Classification, p: Profile, field: Field): Resolution
         : p.eeo.lgbtq === null
           ? { desired: { text: 'Decline', decline: true } }
           : { desired: yes(p.eeo.lgbtq) };
+    // The usual EEO wording, so "I am not a veteran" wins over "…just not a protected veteran".
     case 'veteran':
-      return p.eeo.veteran === undefined || p.eeo.veteran === null ? { desired: { text: 'Decline', decline: true } } : { desired: yes(p.eeo.veteran) };
+      if (p.eeo.veteran === undefined || p.eeo.veteran === null) return { desired: { text: 'Decline', decline: true } };
+      return {
+        desired: p.eeo.veteran
+          ? { text: 'I identify as a veteran', alts: ['Veteran', 'Yes'], bool: true }
+          : { text: 'I am not a veteran', alts: ['Not a veteran', 'I am not a protected veteran', 'No'], bool: false },
+      };
     case 'disability':
-      return p.eeo.disability === undefined || p.eeo.disability === null ? { desired: { text: 'Decline', decline: true } } : { desired: yes(p.eeo.disability) };
+      if (p.eeo.disability === undefined || p.eeo.disability === null) return { desired: { text: 'Decline', decline: true } };
+      return {
+        desired: p.eeo.disability
+          ? { text: 'Yes, I have a disability', alts: ['Yes, I have a disability (or previously had a disability)'], bool: true }
+          : { text: "No, I don't have a disability", alts: ['No, I do not have a disability', 'I do not have a disability'], bool: false },
+      };
     case 'salary': {
       const { salaryMin: lo, salaryMax: hi } = p.preferences;
       if (!lo && !hi) return { flag: 'Set preferences.salaryMin/salaryMax' };

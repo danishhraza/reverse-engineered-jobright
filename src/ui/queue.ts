@@ -100,7 +100,9 @@ async function render(): Promise<void> {
   const todayLine = document.createElement('span');
   todayLine.className = 'muted';
   todayLine.style.alignSelf = 'center';
-  todayLine.textContent = `Today: ${started}/${ap.dailyCap} started, ${appliedToday} applied`;
+  const aiCost = q.reduce((s, j) => s + (j.ai?.cost ?? 0), 0);
+  const aiCalls = q.reduce((s, j) => s + (j.ai?.calls ?? 0), 0);
+  todayLine.textContent = `Today: ${started}/${ap.dailyCap} started, ${appliedToday} applied${aiCalls ? ` · AI in this list: ${aiCalls} calls, $${aiCost.toFixed(4)}` : ''}`;
   $('counts').appendChild(todayLine);
 
   const shown = q.filter((j) =>
@@ -128,7 +130,11 @@ function row(j: QueueJob): HTMLTableRowElement {
     <td><span class="pill ${j.status}">${LABEL[j.status]}</span>${j.priority && j.status === 'queued' ? ' <span class="muted">next</span>' : ''}${
       j.status === 'ready' && j.submitAt ? `<div class="muted" style="font-size:11px">auto-submits ${new Date(j.submitAt).toTimeString().slice(0, 5)}</div>` : ''
     }</td>
-    <td class="job"><div class="t">${name}</div><a href="${esc(j.url)}" target="_blank" rel="noreferrer">${esc(host(j.url))}</a>${j.profile ? ` <span class="muted">· ${esc(j.profile)}</span>` : ''}</td>
+    <td class="job"><div class="t">${name}</div><a href="${esc(j.url)}" target="_blank" rel="noreferrer">${esc(host(j.url))}</a>${j.profile ? ` <span class="muted">· ${esc(j.profile)}</span>` : ''}${
+      j.ai?.calls
+        ? `<div class="muted" style="font-size:11px">AI: ${j.ai.calls} call${j.ai.calls > 1 ? 's' : ''} · ${(j.ai.tokensIn + j.ai.tokensOut).toLocaleString()} tokens${j.ai.cost ? ` · $${j.ai.cost.toFixed(4)}` : ''}</div>`
+        : ''
+    }</td>
     <td class="why">${esc(j.reason ?? j.log.at(-1)?.slice(6) ?? '')}${j.log.length ? ` <a href="#" class="toggle">${open.has(j.id) ? 'hide log' : 'log'}</a>` : ''}${open.has(j.id) ? `<div class="log">${esc(j.log.join('\n'))}</div>` : ''}</td>
     <td class="acts"></td>`;
   tr.querySelector('.toggle')?.addEventListener('click', (e) => {

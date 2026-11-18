@@ -245,7 +245,9 @@ async function formStep(req: StepRequest, onReport: (r: FillReport) => void): Pr
     case 'cancelled':
       return { kind: 'failed', reason: 'Stopped' };
     case 'blocked':
-      return { kind: 'needs-you', reason: `${blocking.length} required question(s) need you: ${names(blocking)}` };
+      return blocking.length
+        ? { kind: 'needs-you', reason: `${blocking.length} required question(s) need you: ${names(blocking)}` }
+        : { kind: 'needs-you', reason: report.message ?? 'Something required on this page is still missing' };
     case 'errors':
       return { kind: 'needs-you', reason: 'The page shows errors after Next — fix them, then press Continue' };
     case 'not-moved':

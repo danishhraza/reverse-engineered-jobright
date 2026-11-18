@@ -27,7 +27,13 @@ export function norm(s: string): string {
 }
 
 function tokens(s: string): Set<string> {
-  return new Set(norm(s).split(' ').filter((t) => t.length > 1 || /\d/.test(t)));
+  // "masters" / "master", "sciences" / "science": plurals and possessives count as the same word.
+  return new Set(
+    norm(s)
+      .split(' ')
+      .filter((t) => t.length > 1 || /\d/.test(t))
+      .map((t) => (t.length > 4 && t.endsWith('s') && !t.endsWith('ss') ? t.slice(0, -1) : t)),
+  );
 }
 
 export function jaccard(a: string, b: string): number {
@@ -76,30 +82,40 @@ export function matchOption(options: string[], desired: Desired): MatchResult | 
   const real = scored.filter((s) => !isPlaceholderOption(options[s.index]));
   if (!real.length) return null;
   real.sort((a, b) => b.score - a.score);
-  const best = real[0];
-  if (best.score <= 0) return null;
-  // Two options equally good and not exact: ambiguous, so lower confidence.
-  if (real[1] && real[1].score === best.score && best.score < 1) return { index: best.index, score: Math.min(best.score, 0.55) };
-  return best;
+  if (real[0].score <= 0) return null;
+  // Several options equally good: break the tie on how many words they share with the answer
+  // ("Masters of Science (MS)" over "Masters of Arts (MA)" for "Master of Science").
+  const tied = real.filter((s) => s.score === real[0].score);
+  if (tied.length > 1 && real[0].score < 1) {
+    const overlap = (i: number) => Math.max(...[desired.text, ...(desired.alts ?? [])].filter(Boolean).map((c) => jaccard(options[i], c)));
+    tied.sort((a, b) => overlap(b.index) - overlap(a.index));
+    // Still a tie: ambiguous, so lower confidence.
+    if (overlap(tied[0].index) === overlap(tied[1].index)) return { index: tied[0].index, score: Math.min(tied[0].score, 0.55) };
+    return tied[0];
+  }
+  return real[0];
 }
 
 function scoreOne(label: string, d: Desired): number {
   const n = norm(label);
   if (d.decline) return DECLINE.test(n) ? 0.95 : 0;
+  const cands = [d.text, ...(d.alts ?? [])].filter(Boolean);
+  let text = 0;
+  for (const c of cands) text = Math.max(text, textScore(label, c));
   if (d.bool !== undefined) {
     if (DECLINE.test(n)) return 0;
     const no = NOISH.test(n);
     const yes = YESISH.test(n) && !no;
     if (n === 'yes') return d.bool ? 1 : 0;
     if (n === 'no') return d.bool ? 0 : 1;
+    // Exact wording we were given ("I am not a veteran") beats any option that merely sounds like no.
+    if (text >= 0.9) return text;
     if (d.bool && yes) return 0.85;
     if (!d.bool && no) return 0.85;
-    // Fall through to text matching (e.g. option texts that don't look yes/no-ish).
+    // Option texts that don't look yes/no-ish: text matching only.
+    return text * 0.8;
   }
-  const cands = [d.text, ...(d.alts ?? [])].filter(Boolean);
-  let best = 0;
-  for (const c of cands) best = Math.max(best, textScore(label, c));
-  return d.bool !== undefined ? best * 0.8 : best;
+  return text;
 }
 
 /** Does a question match an answer-bank pattern? Plain words must all appear; /re/flags is a regex. */

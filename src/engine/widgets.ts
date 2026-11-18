@@ -68,10 +68,31 @@ function toIsoDate(s: string): string {
 
 const digits = (s: string) => s.replace(/\D/g, '');
 
+const MONTH_NAMES = ['jan', 'feb', 'mar', 'apr', 'may', 'jun', 'jul', 'aug', 'sep', 'oct', 'nov', 'dec'];
+
+/** Year and month of a date written as 06/2024, 2024-06, 06/01/2024, Jun 2024… Null if it isn't one. */
+function yearMonth(s: string): { y: number; m: number } | null {
+  const t = s.trim();
+  if (!t || t.length > 30) return null;
+  const nums = t.match(/\d+/g) ?? [];
+  const yi = nums.findIndex((n) => n.length === 4);
+  if (yi < 0) return null;
+  const named = MONTH_NAMES.findIndex((n) => new RegExp(`\\b${n}`, 'i').test(t));
+  const m = named >= 0 ? named + 1 : Number(nums.filter((_, i) => i !== yi)[0]);
+  return m >= 1 && m <= 12 ? { y: Number(nums[yi]), m } : null;
+}
+
+/** Date pickers rewrite what you type into their own format: same year and month counts as stuck. */
+function sameDate(a: string, b: string): boolean {
+  const x = yearMonth(a);
+  const y = yearMonth(b);
+  return !!x && !!y && x.y === y.y && x.m === y.m;
+}
+
 async function fillText(f: Field, value: string, overwrite: boolean): Promise<WidgetResult> {
   const el = f.el as HTMLInputElement | HTMLTextAreaElement;
   const cur = el.value ?? '';
-  if (cur === value) return { ok: true, value, match: 1 };
+  if (cur === value || sameDate(cur, value)) return { ok: true, value: cur, match: 1 };
   if (currentValue(f).trim() && !overwrite) return { ok: true, value: cur, match: 1, skipped: true, reason: 'Already filled' };
   el.focus({ preventScroll: true });
   setNativeValue(el, value);
@@ -79,7 +100,7 @@ async function fillText(f: Field, value: string, overwrite: boolean): Promise<Wi
   el.dispatchEvent(new FocusEvent('focusout', { bubbles: true }));
   await sleep(30);
   let now = el.value;
-  if (now !== value && !(digits(value).length >= 7 && digits(now).endsWith(digits(value).slice(-7)))) {
+  if (now !== value && !sameDate(now, value) && !(digits(value).length >= 7 && digits(now).endsWith(digits(value).slice(-7)))) {
     // Some forms (ADP, web components) throw away values set from script and keep only real
     // edits: let the browser insert the text itself, which fires the same events as typing.
     el.focus({ preventScroll: true });
@@ -99,6 +120,7 @@ async function fillText(f: Field, value: string, overwrite: boolean): Promise<Wi
     }
   }
   if (now === value) return { ok: true, value, match: 1 };
+  if (sameDate(now, value)) return { ok: true, value: now, match: 1 };
   // Input masks (phone) reformat the value; accept if the digits survived.
   if (digits(value).length >= 7 && digits(now).endsWith(digits(value).slice(-7))) return { ok: true, value: now, match: 0.95 };
   if (el.maxLength > 0 && value.startsWith(now)) return { ok: true, value: now, match: 0.8, reason: `Truncated to ${el.maxLength} chars` };

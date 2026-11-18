@@ -46,6 +46,18 @@ export function genericNext(): HTMLElement | null {
   return bs[bs.length - 1] ?? null;
 }
 
+/** A Next/Continue button that's there but greyed out (the site wants something filled first). */
+export function disabledNext(): HTMLElement | null {
+  return (
+    Array.from(document.querySelectorAll<HTMLElement>(CLICKABLE)).find((b) => {
+      if (b.closest('.rej-ui') || !isVisible(b)) return false;
+      const off = (b as HTMLButtonElement).disabled || b.getAttribute('aria-disabled') === 'true';
+      const t = buttonText(b);
+      return off && t.length <= 40 && NEXT.test(t) && !NOT_NEXT.test(t);
+    }) ?? null
+  );
+}
+
 export function submitButton(): HTMLElement | null {
   const bs = visibleButtons().filter((b) => SUBMIT.test(buttonText(b)));
   return bs[bs.length - 1] ?? null;

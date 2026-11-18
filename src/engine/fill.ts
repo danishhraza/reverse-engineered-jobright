@@ -98,6 +98,7 @@ export async function fillPage(opts: PageFillOptions): Promise<FieldReport[]> {
         emit();
       },
       fallback: (f) => fillOne(f, opts),
+      aiPick: (f, note) => aiFill(f, opts, note),
     });
   }
 
@@ -155,7 +156,7 @@ export async function fillSingle(f: Field, opts: PageFillOptions): Promise<Field
     if (r !== undefined) return r;
   }
   const e = entryFor(f, opts.profile);
-  if (e) return fillEntryField(f, e.name, e.entry, e.resolver, true, (x) => fillOne(x, o));
+  if (e) return fillEntryField(f, e.name, e.entry, e.resolver, true, (x) => fillOne(x, o), (x, note) => aiFill(x, o, note));
   return fillOne(f, o);
 }
 
