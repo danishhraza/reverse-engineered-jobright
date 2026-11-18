@@ -7,7 +7,7 @@ import { currentValue, isPressed, scanFields, stampId, type Field } from './fiel
 import { fillEntryField } from './entries';
 import { entryFor, fillSections } from './sections';
 import { fillField, MIN_MATCH } from './widgets';
-import { norm } from './match';
+import { isPlaceholderOption, norm, type Desired } from './match';
 
 // The page-level fill loop: upload the resume first (sites re-parse it and
 // overwrite fields), then fill every field, retrying each a few times, and
@@ -22,7 +22,28 @@ export interface PageFillOptions {
   onProgress?: (rows: FieldReport[]) => void;
   /** Called right before a click that may reload the page. */
   onNavigate?: () => void;
+  /** Answers questions the rules can't (an LLM, via the background). */
+  ai?: AiAsk;
+  /** Tick "I agree / I certify" boxes instead of flagging them (autopilot). */
+  agreeToTerms?: boolean;
 }
+
+export interface AiQuestion {
+  question: string;
+  kind: string;
+  /** Exact option labels to choose from; empty for free text. */
+  options: string[];
+  required: boolean;
+  /** Extra context, e.g. why the rules' answer didn't fit. */
+  note?: string;
+}
+
+export interface AiAnswer {
+  answer: string;
+  confidence: number;
+}
+
+export type AiAsk = (q: AiQuestion) => Promise<AiAnswer | null>;
 
 /** Below this, fill nothing and ask the human. Between this and AUTO_OK, fill but ask the human to check. */
 const ASK_HUMAN = 0.55;
@@ -140,8 +161,15 @@ function row(f: Field, status: FieldReport['status'], confidence: number, key?: 
 async function fillOne(f: Field, opts: PageFillOptions): Promise<FieldReport | null> {
   const c = classify(f, opts.profile.answers, opts.learned);
   if (!c) {
+    if (!currentValue(f) && (f.required || f.choices?.length || f.kind === 'select')) {
+      const ai = await aiFill(f, opts);
+      if (ai) return ai;
+    }
     if (f.required && !currentValue(f)) return row(f, 'flagged', 0, undefined, "Couldn't work out what this asks");
     return f.label ? row(f, 'skipped', 0, undefined, 'Not recognised (optional)') : null;
+  }
+  if (c.key === 'consent' && opts.agreeToTerms && (f.kind === 'checkbox' || f.kind === 'checkboxGroup')) {
+    return applyDesired(f, { text: 'Yes', bool: true }, c.score, c.key, opts, 'Agreed (autopilot)');
   }
   const res = resolve(c, opts.profile, f);
   if ('skip' in res) {
@@ -150,10 +178,30 @@ async function fillOne(f: Field, opts: PageFillOptions): Promise<FieldReport | n
   }
   if ('flag' in res) {
     if (currentValue(f) && !f.required) return row(f, 'skipped', c.score, c.key, res.flag, currentValue(f));
+    // Things like "years of experience" the AI can work out from your work history.
+    if (AI_KEYS.has(c.key) && !currentValue(f)) {
+      const ai = await aiFill(f, opts);
+      if (ai) return ai;
+    }
     return row(f, 'flagged', c.score, c.key, res.flag, currentValue(f) || undefined);
   }
   if (c.score < ASK_HUMAN) return row(f, 'flagged', c.score, c.key, 'Not sure what this field is');
+  const r = await applyDesired(f, res.desired, c.score, c.key, opts);
+  // The answer we have isn't among the options ("How did you hear about us?" without LinkedIn): let the AI pick.
+  if (r.status === 'flagged' && (f.kind === 'select' || f.choices?.length) && !currentValue(f)) {
+    const ai = await aiFill(f, opts, `My answer "${res.desired.text}" isn't one of the options.`);
+    if (ai?.status === 'filled') return ai;
+  }
+  return r;
+}
 
+/** Questions the rules recognise but can't answer from the profile alone. */
+const AI_KEYS = new Set(['yearsExperience', 'howDidYouHear']);
+
+/** Fill `f` with `desired`, retrying, and score the result. */
+async function applyDesired(f: Field, desired: Desired, score: number, key: string, opts: PageFillOptions, note?: string): Promise<FieldReport> {
+  const c = { score, key };
+  const res = { desired };
   let last = { ok: false, match: 0, reason: 'Not attempted' } as Awaited<ReturnType<typeof fillField>>;
   // Dropdowns already retry with several queries internally.
   const tries = f.kind === 'combobox' ? 1 : RETRIES;
@@ -174,7 +222,39 @@ async function fillOne(f: Field, opts: PageFillOptions): Promise<FieldReport | n
   if (!last.ok) return row(f, 'flagged', conf, c.key, last.reason, last.value);
   if (last.skipped) return row(f, 'skipped', conf, c.key, last.reason, last.value);
   if (conf < AUTO_OK) return row(f, 'flagged', conf, c.key, last.reason ?? 'Filled, but low confidence — check it', last.value);
-  return row(f, 'filled', conf, c.key, last.reason, last.value);
+  return row(f, 'filled', conf, c.key, note ?? last.reason, last.value);
+}
+
+// ---------- AI answers (questions the rules can't answer) ----------
+
+/** The options a question offers, for the AI to choose from. Empty for free text and searchable dropdowns. */
+function optionsOf(f: Field): string[] {
+  if (f.kind === 'select') return Array.from((f.el as HTMLSelectElement).options).map((o) => squash(o.textContent ?? '')).filter((t) => t && !isPlaceholderOption(t));
+  return (f.choices ?? []).map((c) => c.label).filter(Boolean);
+}
+
+/** Below this the AI's answer is shown as a suggestion, not filled in. */
+const AI_MIN_CONFIDENCE = 0.7;
+
+async function aiFill(f: Field, opts: PageFillOptions, note?: string): Promise<FieldReport | null> {
+  if (!opts.ai || !f.label || f.kind === 'file' || f.kind === 'checkbox' || f.inputType === 'password') return null;
+  const options = optionsOf(f);
+  status(`Asking the AI: "${f.label.length > 60 ? `${f.label.slice(0, 57)}…` : f.label}"…`);
+  let a: AiAnswer | null = null;
+  try {
+    a = await opts.ai({ question: f.label, kind: f.kind, options, required: f.required, note });
+  } catch (e) {
+    rethrowCancel(e);
+    return row(f, 'flagged', 0, 'ai', `AI error: ${String((e as Error)?.message ?? e).slice(0, 120)}`);
+  }
+  checkCancel();
+  if (!a || !a.answer) return null;
+  if (a.confidence < AI_MIN_CONFIDENCE) return row(f, 'flagged', a.confidence, 'ai', `AI isn't sure — it suggests "${a.answer.slice(0, 80)}"`);
+  if (options.length && !options.some((o) => norm(o) === norm(a!.answer))) {
+    return row(f, 'flagged', a.confidence, 'ai', `AI answered "${a.answer.slice(0, 80)}", which isn't one of the options`);
+  }
+  const yesNo = /^(yes|no)$/i.test(a.answer) && !options.length ? { bool: /^yes$/i.test(a.answer) } : {};
+  return applyDesired(f, { text: a.answer, ...yesNo }, Math.min(0.95, a.confidence), 'ai', opts, 'Answered by AI — check it');
 }
 
 // ---------- Resume upload ----------

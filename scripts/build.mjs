@@ -13,6 +13,7 @@ const options = {
     content: 'src/content/index.ts',
     sidepanel: 'src/ui/sidepanel.ts',
     options: 'src/ui/options.ts',
+    queue: 'src/ui/queue.ts',
     // Standalone engine for injecting into a page without the extension (manual testing).
     inject: 'src/inject.ts',
   },

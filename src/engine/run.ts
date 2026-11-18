@@ -1,9 +1,17 @@
 import { pickAdapter } from '../adapters';
 import type { Answer, FieldReport, FillReport, Profile } from '../types';
 import { begin, Cancelled, checkCancel, end, status } from './control';
-import { realClick, sleep, waitFor, waitForSettle } from './dom';
+import { cleanText, isVisible, realClick, sleep, waitFor, waitForSettle } from './dom';
 import { currentValue, fieldFor, findById, scanFields } from './fields';
-import { fillPage, fillSingle } from './fill';
+import { fillPage, fillSingle, type AiAsk } from './fill';
+import { genericFinal, genericNext, genericSignature } from './nav';
+
+/** A visible error banner or invalid-field message after pressing Next (sites without an adapter). */
+function pageErrors(): boolean {
+  return Array.from(document.querySelectorAll<HTMLElement>('[role="alert"], .error, .errors, [class*="error-message" i], [aria-invalid="true"]')).some(
+    (e) => isVisible(e) && (e.getAttribute('aria-invalid') === 'true' || /required|invalid|error|please (enter|select|complete)/i.test(cleanText(e))),
+  );
+}
 
 // Multi-page driver + on-page highlighting + learning from manual answers.
 
@@ -20,6 +28,12 @@ export interface RunOptions {
   onNavigate?: (page: number) => void;
   /** Page number to start counting from when carrying on after a reload. */
   startPage?: number;
+  /** Answers questions the rules can't. */
+  ai?: AiAsk;
+  /** Tick "I agree / I certify" boxes (autopilot). */
+  agreeToTerms?: boolean;
+  /** Autopilot: also find Next/Submit on sites without an adapter. */
+  autopilot?: boolean;
 }
 
 const MAX_PAGES = 10;
@@ -48,6 +62,8 @@ export async function run(opts: RunOptions): Promise<FillReport> {
         adapter,
         learned: opts.learned,
         overwrite: opts.overwrite,
+        ai: opts.ai,
+        agreeToTerms: opts.agreeToTerms,
         onNavigate: () => opts.onNavigate?.(page),
         onProgress: (r) => {
           rows = r;
@@ -60,30 +76,36 @@ export async function run(opts: RunOptions): Promise<FillReport> {
       if (opts.learn) watchForLearning(fields, opts.onLearn);
 
       const blocking = fields.filter((f) => f.status === 'flagged' && f.required);
-      const next = adapter.nextButton?.();
-      if (!opts.autoAdvance || !next || adapter.isFinalPage?.()) {
-        report.message = adapter.isFinalPage?.()
-          ? 'Reached the review/submit step — check everything and submit yourself.'
-          : summary(fields);
+      const generic = opts.autopilot && !adapter.nextButton;
+      const next = adapter.nextButton?.() ?? (generic ? genericNext() : null);
+      const final = adapter.isFinalPage?.() ?? (generic ? genericFinal() : false);
+      if (!opts.autoAdvance || !next || final) {
+        report.stop = final ? 'final' : blocking.length ? 'blocked' : 'no-next';
+        report.message = final ? 'Reached the review/submit step — check everything and submit yourself.' : summary(fields);
         break;
       }
       if (blocking.length) {
+        report.stop = 'blocked';
         report.message = `Stopped on page ${page}: ${blocking.length} required field(s) need you. Fix them, then press Fill again to continue.`;
         break;
       }
       checkCancel();
       status(`Page ${page} done — clicking Next and waiting for page ${page + 1}…`);
-      const sig = adapter.pageSignature?.() ?? location.href;
+      const signature = () => adapter.pageSignature?.() ?? (generic ? genericSignature() : location.href);
+      const sig = signature();
+      const hadErrors = generic && pageErrors();
       opts.onNavigate?.(page + 1);
       realClick(next);
-      const moved = await waitFor(() => (adapter.hasErrors?.() ? 'error' : (adapter.pageSignature?.() ?? location.href) !== sig ? 'moved' : null), {
+      const moved = await waitFor(() => (signature() !== sig ? 'moved' : adapter.hasErrors?.() || (generic && !hadErrors && pageErrors()) ? 'error' : null), {
         timeout: 15000,
         interval: 250,
       });
       if (moved !== 'moved') {
+        report.stop = moved === 'error' ? 'errors' : 'not-moved';
         report.message = moved === 'error' ? `Page ${page} has validation errors — fix them, then press Fill again.` : `Clicked Next on page ${page}, but the page didn't change.`;
         break;
       }
+      if (page === MAX_PAGES) report.stop = 'max-pages';
       await waitForSettle(800, 10000);
       opts.onReport({ ...report, done: false, message: `Moving to page ${page + 1}…` });
       await sleep(300);
@@ -91,7 +113,7 @@ export async function run(opts: RunOptions): Promise<FillReport> {
     }
   } catch (e) {
     if (!(e instanceof Cancelled)) throw e;
-    report = { ...report, fields: rows, cancelled: true, message: `Stopped. ${summary(rows)} Anything already filled stays — press Fill to redo it.` };
+    report = { ...report, fields: rows, cancelled: true, stop: 'cancelled', message: `Stopped. ${summary(rows)} Anything already filled stays — press Fill to redo it.` };
     highlight(rows);
   } finally {
     running = false;
@@ -115,7 +137,7 @@ export async function runSingle(opts: Omit<RunOptions, 'autoAdvance' | 'overwrit
     if (!field) {
       report.message = "Couldn't find a form field where you clicked. Click into the field, then try again.";
     } else {
-      const row = await fillSingle(field, { profile: opts.profile, resume: opts.resume, adapter, learned: opts.learned, overwrite: true });
+      const row = await fillSingle(field, { profile: opts.profile, resume: opts.resume, adapter, learned: opts.learned, overwrite: true, ai: opts.ai });
       report.fields = row ? [row] : [];
       report.message = !row
         ? `Nothing to fill for "${field.label || 'this field'}".`

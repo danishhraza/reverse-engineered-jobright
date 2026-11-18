@@ -17,8 +17,8 @@
       table { width: 100%; border-collapse: collapse; }
       td, th { text-align: left; padding: 6px 8px; border-bottom: 1px solid var(--border); vertical-align: top; overflow-wrap: anywhere; }
       th { color: var(--muted); font-weight: 500; }
-      #account label:not(.toggle) { display: grid; gap: 4px; margin-bottom: 10px; }
-      #account input:not([type=checkbox]) { max-width: 420px; }
+      #account label:not(.toggle), #llm label:not(.toggle) { display: grid; gap: 4px; margin-bottom: 10px; }
+      #account input:not([type=checkbox]), #llm input:not([type=checkbox]) { max-width: 420px; }
       @media (max-width: 600px) { .profile { grid-template-columns: 1fr; } .actions { justify-content: flex-start; } }
     </style>
   </head>
@@ -50,6 +50,16 @@
       <label>Password <input type="password" id="accPass" autocomplete="new-password" /></label>
       <label class="toggle"><input type="checkbox" id="accShow" /> Show password</label>
       <div class="row"><button id="accSave" class="primary">Save login</button><button id="accClear" class="danger">Clear</button><span id="accMsg" class="muted"></span></div>
+    </div>
+
+    <h2>AI answers (OpenRouter)</h2>
+    <p class="muted">Questions the rules can't answer ("Do you have a relative working at…?") go to a model on <a href="https://openrouter.ai/keys" target="_blank" rel="noreferrer">OpenRouter</a> with a short summary of your profile (work, education, work authorization, location, skills; no contact details or EEO answers) and the standing answers below. Answers it isn't sure of stay flagged for you. Reused answers are cached.</p>
+    <div class="card" id="llm">
+      <label class="toggle"><input type="checkbox" id="llmOn" /> Use AI for questions the rules can't answer</label>
+      <label>OpenRouter API key <input type="password" id="llmKey" autocomplete="off" placeholder="sk-or-…" /></label>
+      <label>Model <input id="llmModel" autocomplete="off" /></label>
+      <label>Standing answers (one per line; always true for you) <textarea id="llmStanding" rows="6"></textarea></label>
+      <div class="row"><button id="llmSave" class="primary">Save</button><button id="llmTest">Test</button><button id="llmClearCache">Forget cached answers</button><span id="llmMsg" class="muted"></span></div>
     </div>
 
     <h2>Learned answers</h2>

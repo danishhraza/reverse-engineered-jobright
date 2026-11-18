@@ -191,6 +191,11 @@ export interface FillReport {
   fields: FieldReport[];
   done: boolean;
   message?: string;
+  /**
+   * Why a full fill stopped: reached the Submit step, required fields need you,
+   * no Next button, Next didn't move, the page showed errors, page limit, Cancel.
+   */
+  stop?: 'final' | 'blocked' | 'no-next' | 'not-moved' | 'errors' | 'max-pages' | 'cancelled';
   /** What it's doing right now ("Picking "Country" — waiting for its options…"). */
   current?: string;
   /** You pressed Cancel. */

@@ -1,6 +1,8 @@
 import { validateStore } from '../profile/merge';
 import { getAccount, getLearned, getResume, getSettings, getStore, setAccount, setLearned, setResume, setSettings, setStore } from '../profile/storage';
 import type { ProfileStore, Settings } from '../types';
+import { getLlm, setLlm } from '../queue/store';
+import { DEFAULT_LLM } from '../queue/types';
 
 const $ = <T extends HTMLElement>(id: string) => document.getElementById(id) as T;
 const editor = $<HTMLTextAreaElement>('editor');
@@ -155,5 +157,40 @@ $('accClear').addEventListener('click', async () => {
   $('accMsg').textContent = 'Cleared.';
 });
 
+// ---------- AI answers (OpenRouter) ----------
+
+async function renderLlm(): Promise<void> {
+  const l = await getLlm();
+  $<HTMLInputElement>('llmOn').checked = l.enabled;
+  $<HTMLInputElement>('llmKey').value = l.apiKey ?? '';
+  $<HTMLInputElement>('llmModel').value = l.model;
+  $<HTMLTextAreaElement>('llmStanding').value = l.standing;
+}
+
+async function saveLlm(): Promise<void> {
+  await setLlm({
+    enabled: $<HTMLInputElement>('llmOn').checked,
+    apiKey: $<HTMLInputElement>('llmKey').value.trim() || undefined,
+    model: $<HTMLInputElement>('llmModel').value.trim() || DEFAULT_LLM.model,
+    standing: $<HTMLTextAreaElement>('llmStanding').value,
+  });
+}
+
+$('llmSave').addEventListener('click', async () => {
+  await saveLlm();
+  $('llmMsg').textContent = 'Saved.';
+});
+$('llmTest').addEventListener('click', async () => {
+  await saveLlm();
+  $('llmMsg').textContent = 'Asking the model…';
+  const r: { answer?: string; confidence?: number; error?: string } = await chrome.runtime.sendMessage({ type: 'llmTest' });
+  $('llmMsg').textContent = r?.error ? `Failed: ${r.error}` : `Works — asked "Are you at least 18?", got "${r?.answer}" (confidence ${r?.confidence})`;
+});
+$('llmClearCache').addEventListener('click', async () => {
+  await chrome.storage.local.remove('aiAnswers');
+  $('llmMsg').textContent = 'Cached answers cleared.';
+});
+
 render();
 renderAccount();
+renderLlm();

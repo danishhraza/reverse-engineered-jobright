@@ -50,7 +50,8 @@ const RULES: Rule[] = [
   { key: 'workAuthorized', label: /(legally )?(authori[sz]ed|eligible|permitted) to work|work (authori[sz]ation|permit)|right to work|legal right to/ },
   { key: 'citizen', label: /\bcitizen(ship)?\b/ },
   { key: 'over18', label: /18 years|over 18|at least 18|age of 18|legal (working )?age/ },
-  { key: 'previouslyEmployed', label: /(previously|ever|formerly|currently) (been )?(employed|worked) (by|for|at|with)|former employee|worked (for|at) .* before/ },
+  // About you, not your family ("Do you have relatives currently employed by…" is a different question).
+  { key: 'previouslyEmployed', label: /(previously|ever|formerly|currently) (been )?(employed|worked) (by|for|at|with)|former employee|worked (for|at) .* before/, not: /relative|family|friend|spouse|partner|household|know anyone|related to/ },
   { key: 'referred', label: /were you referred|referred by|employee referral|know anyone (who works|at)/ },
   { key: 'howDidYouHear', label: /how (did )?you (hear|heard|find|found|learn|learned|come across)|where did you (hear|find|learn|see)|^source$|referral source|how .* find (out )?about/, attr: /\bsource\b/ },
   { key: 'school', label: /which (university|school|college)|(university|school|college) (are you|did you)/ },

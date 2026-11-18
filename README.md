@@ -19,6 +19,8 @@
 - **Pages that reload (Taleo).** If Next or "I want to upload my resume" reloads the whole page, the fill starts again on the new page. Any other reload mid-fill just ends the run, so the side panel never gets stuck on "Filling…".
 - **Job site login.** Save one email + password in Options → Job site login; it's used on sign-up and sign-in pages when you press Fill. It's kept in this browser's local storage (not encrypted, never synced) and never shown in the side panel.
 - **Learning.** When you answer a flagged question yourself, the side panel asks (✓ / ✕) whether to save the question → answer for next time, showing any answer it would replace. Manage saved answers in Options.
+- **AI answers (optional).** Questions the rules can't answer ("Do you have relatives working at Deloitte?") go to a model on OpenRouter with a short profile summary (no contact details or EEO answers) and your standing answers. Answers it isn't sure of are only suggested, never filled. Answers are cached and reused.
+- **Autopilot.** Side panel → **Autopilot** opens a queue of job links (paste them, import a CSV, or load the sample). Press **Start** and it works through them one at a time in its own window: clicks Apply, signs up or signs in with your saved login, fills every page, and stops at Submit for you to review (or submits on its own if you turn that on). Anything only you can do (email codes, CAPTCHAs, questions it can't answer, sign-in failures) goes to **Needs you** with its tab kept open; fix it there and press **Done — continue** to pick up where it stopped. It has a daily limit (default 100), a randomised pause between jobs, a per-job timeout, and pauses itself when too many jobs are waiting on you. LinkedIn Easy Apply and Indeed's own Apply are skipped.
 
 ## Setup
 
@@ -31,6 +33,8 @@ npm run build
 2. Open the extension's **Options** page, click **Import profile JSON** and pick your profile file.
 3. On each profile, click **Attach PDF** and choose that profile's resume.
 4. Open a job application and press **Autofill**.
+5. Optional: in Options, save your **Job site login**, and an OpenRouter key under **AI answers** (press **Test** to check the key and model). Review the standing answers there.
+6. For Autopilot: side panel → **Autopilot** → **Load sample CSV** (or paste links) → **Start**. Keep its window open and not minimized.
 
 After changing code: `npm run build` (or `npm run watch`), then click the reload icon on the extension card and reload the job page.
 
@@ -60,5 +64,9 @@ Layout:
 | `src/engine/fill.ts` | Page fill loop, resume upload, retries, flagging |
 | `src/engine/run.ts` | Multi-page driver, single-field fill, highlighting, learning |
 | `src/engine/control.ts` | Cancel flag and live status line |
+| `src/engine/nav.ts` | Next / Submit / Apply buttons on sites without an adapter |
 | `src/adapters/` | Per-ATS detection, resume input, Workday sections and navigation |
-| `src/ui/` | Side panel and options page |
+| `src/queue/` | Autopilot: queue storage, CSV, the background runner |
+| `src/content/autopilot.ts` | Autopilot's page side: what a page is, and one step on it |
+| `src/llm/` | OpenRouter client and the profile summary the model sees |
+| `src/ui/` | Side panel, options page, Autopilot queue page |

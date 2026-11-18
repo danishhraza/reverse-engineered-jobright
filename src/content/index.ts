@@ -1,6 +1,7 @@
 import { isKnownAts, pickAdapter } from '../adapters';
-import { resolveProfile } from '../profile/merge';
-import { dataUrlToFile, getAccount, getLearned, getResume, getSettings, getStore } from '../profile/storage';
+import { getLearned, getSettings } from '../profile/storage';
+import { loadSetup } from './context';
+import { probe, step, type StepRequest } from './autopilot';
 import { looksLikeForm } from '../engine/fields';
 import { cancel } from '../engine/control';
 import { sleep, waitForSettle } from '../engine/dom';
@@ -16,7 +17,9 @@ type Msg =
   | { type: 'fill'; profileId?: string; mode?: FillMode; page?: number }
   | { type: 'cancel' }
   | { type: 'fabReport'; report: FillReport }
-  | { type: 'focus'; id: string };
+  | { type: 'focus'; id: string }
+  | { type: 'autoProbe' }
+  | ({ type: 'autoStep'; step: number } & StepRequest);
 
 // The form control you last clicked or tabbed into, for "fill just this field".
 let lastFocus: { el: Element; ts: number } | null = null;
@@ -52,19 +55,17 @@ async function startFill(profileId?: string, mode?: FillMode, page?: number): Pr
   if (isRunning()) return { started: false, reason: 'Already filling' };
   if (mode === 'focused') return startSingle(profileId);
   if (!hasForm()) return { started: false, reason: 'No form in this frame' };
-  const [store, settings, learned] = await Promise.all([getStore(), getSettings(), getLearned()]);
-  if (!store) return { started: false, reason: 'No profiles yet — import them in Options' };
-  const id = profileId ?? settings.activeProfileId ?? store.profiles[0].id;
-  const profile = { ...resolveProfile(store, id), account: await getAccount() };
-  const stored = await getResume(id);
-  const resume = stored ? dataUrlToFile(stored) : undefined;
+  const setup = await loadSetup(profileId);
+  if ('error' in setup) return { started: false, reason: setup.error };
+  const { settings, profileId: id } = setup;
 
   stopping = false;
   setFab('busy', 'Filling…');
   run({
-    profile,
-    resume,
-    learned,
+    profile: setup.profile,
+    resume: setup.resume,
+    learned: setup.learned,
+    ai: setup.ai,
     overwrite: mode === 'empty' ? false : mode === 'all' ? true : settings.overwrite,
     autoAdvance: settings.autoAdvance,
     learn: settings.learn,
@@ -87,17 +88,16 @@ async function startFill(profileId?: string, mode?: FillMode, page?: number): Pr
 async function startSingle(profileId?: string): Promise<{ started: boolean; reason?: string }> {
   const target = lastFocus?.el;
   if (!target?.isConnected) return { started: false, reason: 'Click into a field on the page first, then try again.' };
-  const [store, settings, learned] = await Promise.all([getStore(), getSettings(), getLearned()]);
-  if (!store) return { started: false, reason: 'No profiles yet — import them in Options' };
-  const id = profileId ?? settings.activeProfileId ?? store.profiles[0].id;
-  const stored = await getResume(id);
+  const setup = await loadSetup(profileId);
+  if ('error' in setup) return { started: false, reason: setup.error };
   stopping = false;
   runSingle(
     {
-      profile: { ...resolveProfile(store, id), account: await getAccount() },
-      resume: stored ? dataUrlToFile(stored) : undefined,
-      learned,
-      learn: settings.learn,
+      profile: setup.profile,
+      resume: setup.resume,
+      learned: setup.learned,
+      ai: setup.ai,
+      learn: setup.settings.learn,
       onReport: (single) => {
         if (stopping && !single.done) return;
         const ids = new Set(single.fields.map((f) => f.id));
@@ -125,6 +125,26 @@ function send(msg: unknown): void {
 chrome.runtime.onMessage.addListener((msg: Msg, _sender, reply) => {
   if (msg.type === 'ping') {
     reply({ hasForm: hasForm(), ats: pickAdapter().name, top: window === window.top });
+    return;
+  }
+  if (msg.type === 'autoProbe') {
+    try {
+      reply(probe());
+    } catch (e) {
+      reply({ kind: 'none', sig: location.href, detail: String(e) });
+    }
+    return;
+  }
+  if (msg.type === 'autoStep') {
+    // Answer now; the result comes back as its own message (a step can take minutes).
+    reply({ ok: true });
+    stopping = false;
+    step(msg, (report) => {
+      lastReport = report;
+      send({ type: 'report', report });
+    })
+      .then((outcome) => send({ type: 'autoResult', step: msg.step, outcome }))
+      .catch((e) => send({ type: 'autoResult', step: msg.step, outcome: { kind: 'failed', reason: `Error: ${e?.message ?? e}` } }));
     return;
   }
   if (msg.type === 'focusInfo') {

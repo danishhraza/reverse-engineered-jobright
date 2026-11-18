@@ -1,5 +1,10 @@
 import type { FillMode, FillReport, PendingLearn } from './types';
 import { getPending, getSettings, setPending } from './profile/storage';
+import type { AiQuestion } from './engine/fill';
+import { norm } from './engine/match';
+import { askModel } from './llm/openrouter';
+import { getAiAnswers, getLlm, saveAiAnswer } from './queue/store';
+import { onAlarm, onPageLoaded, onStepResult, onTabCreated, onTabRemoved, pauseRunner, queueAction, recover, startRunner, type QueueAction } from './queue/runner';
 
 // Routes "fill this tab" to every frame and keeps the latest report per frame
 // (chrome.storage.session) so the side panel can show it when opened later.
@@ -9,7 +14,37 @@ chrome.runtime.onInstalled.addListener(() => {
 });
 chrome.runtime.onStartup.addListener(() => {
   chrome.sidePanel.setPanelBehavior({ openPanelOnActionClick: true }).catch(() => {});
+  void recover();
 });
+
+// ---------- Autopilot ----------
+
+chrome.alarms.onAlarm.addListener((a) => {
+  if (a.name.startsWith('autopilot-')) void onAlarm(a.name);
+});
+chrome.webNavigation.onCompleted.addListener(({ tabId, frameId }) => void onPageLoaded(tabId, frameId));
+chrome.tabs.onCreated.addListener((tab) => void onTabCreated(tab));
+chrome.notifications?.onClicked.addListener(() => {
+  chrome.tabs.create({ url: chrome.runtime.getURL('queue.html') });
+});
+
+/** Answers are reused across applications: same question + options = same answer. */
+async function answerQuestion(q: AiQuestion, facts: string, job: string): Promise<{ answer?: string; confidence?: number; error?: string }> {
+  const llm = await getLlm();
+  if (!llm.enabled || !llm.apiKey) return {};
+  // Questions naming the company ("…working at Deloitte?") differ per company, so the job isn't part of the key.
+  const key = `${norm(q.question)}|${q.options.map(norm).join('|')}`;
+  const cached = (await getAiAnswers())[key];
+  if (cached && cached.confidence >= 0.7) return cached;
+  try {
+    const a = await askModel(llm, q, { facts, job });
+    if (!a) return { error: 'The model gave no usable answer' };
+    if (a.confidence >= 0.7) await saveAiAnswer(key, a);
+    return a;
+  } catch (e) {
+    return { error: (e as Error).message };
+  }
+}
 
 type FillResult = { frames: number; started: number; reasons: string[] };
 
@@ -163,6 +198,33 @@ chrome.runtime.onMessage.addListener((msg, sender, reply) => {
     })();
     return true;
   }
+  if (msg.type === 'autoResult') {
+    void onStepResult(msg.step, msg.outcome, sender.tab?.id);
+    return;
+  }
+  if (msg.type === 'aiAsk') {
+    answerQuestion(msg.q, msg.facts, msg.job).then(reply);
+    return true;
+  }
+  if (msg.type === 'llmTest') {
+    // Options page "Test": one real question with the saved key and model.
+    answerQuestion({ question: 'Are you at least 18 years old?', kind: 'select', options: ['Yes', 'No'], required: true }, 'Over 18: yes', 'Test')
+      .then(async (r) => {
+        if (r.error || r.answer) return reply(r);
+        const llm = await getLlm();
+        reply({ error: llm.apiKey ? 'AI answers are turned off' : 'No OpenRouter key saved' });
+      })
+      .catch((e) => reply({ error: String(e) }));
+    return true;
+  }
+  if (msg.type === 'queue') {
+    queueAction(msg.payload as QueueAction).then(reply, (e) => reply({ ok: false, error: String(e) }));
+    return true;
+  }
+  if (msg.type === 'runner') {
+    (msg.cmd === 'start' ? startRunner() : pauseRunner('Paused by you')).then(() => reply({ ok: true }), (e) => reply({ ok: false, error: String(e) }));
+    return true;
+  }
   if (msg.type === 'getReports') {
     chrome.storage.session.get(null).then((all) => {
       const prefix = `report:${msg.tabId}:`;
@@ -184,4 +246,5 @@ chrome.commands.onCommand.addListener(async (command) => {
 
 chrome.tabs.onRemoved.addListener(async (tabId) => {
   await chrome.storage.session.remove([...(await reportKeys(tabId)), advKey(tabId)]);
+  await onTabRemoved(tabId);
 });

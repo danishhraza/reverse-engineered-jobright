@@ -1,0 +1,91 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Autofill Jobs — Autopilot</title>
+    <link rel="stylesheet" href="ui.css" />
+    <style>
+      body { max-width: 1180px; margin: 0 auto; padding: 20px 16px 60px; }
+      header { display: flex; justify-content: space-between; align-items: center; gap: 12px; flex-wrap: wrap; }
+      #state { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin: 14px 0 6px; }
+      #state .dot { width: 10px; height: 10px; border-radius: 50%; background: var(--muted); }
+      #state[data-on="1"] .dot { background: var(--accent); animation: p 1.2s infinite; }
+      @keyframes p { 50% { opacity: .35; } }
+      #counts { display: flex; gap: 6px; flex-wrap: wrap; margin: 10px 0; }
+      #counts button { padding: 4px 10px; font-size: 12px; }
+      #counts button.on { border-color: var(--focus); color: var(--focus); }
+      table { width: 100%; border-collapse: collapse; }
+      th, td { text-align: left; padding: 8px; border-bottom: 1px solid var(--border); vertical-align: top; }
+      th { color: var(--muted); font-weight: 500; font-size: 12px; }
+      td.job { min-width: 220px; overflow-wrap: anywhere; }
+      td.job .t { font-weight: 600; }
+      td.why { overflow-wrap: anywhere; }
+      td.acts { white-space: nowrap; text-align: right; }
+      td.acts button { padding: 4px 8px; font-size: 12px; margin-left: 4px; }
+      .log { margin-top: 4px; font: 11px/1.4 ui-monospace, Consolas, monospace; color: var(--muted); white-space: pre-wrap; }
+      .pill.queued { background: var(--border); color: var(--text); }
+      .pill.running { background: rgba(99,102,241,.15); color: var(--focus); }
+      .pill.needs-you { background: var(--warn-bg); color: var(--warn); }
+      .pill.ready { background: rgba(99,102,241,.15); color: var(--focus); }
+      .pill.applied { background: rgba(16,185,129,.15); color: var(--accent); }
+      .pill.skipped { background: var(--border); color: var(--muted); }
+      .pill.failed { background: rgba(239,68,68,.15); color: var(--bad); }
+      #add textarea { min-height: 90px; }
+      #settings label { display: grid; grid-template-columns: 260px 120px; gap: 8px; align-items: center; margin-bottom: 6px; }
+      #settings input[type=number] { font: inherit; padding: 5px 8px; border: 1px solid var(--border); border-radius: 6px; background: var(--bg); color: var(--text); }
+      #msg { min-height: 18px; }
+      .empty { padding: 30px 0; text-align: center; }
+      @media (max-width: 720px) {
+        thead { display: none; }
+        tr { display: block; border-bottom: 1px solid var(--border); padding: 6px 0; }
+        td { display: block; border: 0; padding: 3px 0; }
+        td.acts { text-align: left; }
+        td.acts button { margin: 4px 4px 0 0; }
+        #settings label { grid-template-columns: 1fr 100px; }
+      }
+    </style>
+  </head>
+  <body>
+    <header>
+      <h1><img src="icons/icon32.png" alt="" width="20" height="20" style="vertical-align:-4px;image-rendering:pixelated;margin-right:6px">Autofill Jobs — Autopilot</h1>
+      <div class="row">
+        <button id="start" class="primary">Start</button>
+        <button id="pause">Pause</button>
+        <a href="options.html" target="_blank">Profiles &amp; settings</a>
+      </div>
+    </header>
+
+    <div id="state"><span class="dot"></span><span id="stateText" class="grow"></span></div>
+    <p class="muted" style="margin:0">Jobs open one at a time in a separate window — keep that window open and not minimized (Chrome slows down hidden pages). Anything it can't finish lands in <b>Needs you</b> with its tab kept open: sort it out there, then press <b>Done — continue</b>.</p>
+
+    <div id="counts"></div>
+    <div id="list"></div>
+
+    <h2>Add jobs</h2>
+    <div class="card" id="add">
+      <textarea id="paste" placeholder="Paste job links (one per line), or CSV with a header row: url,company,title,profile"></textarea>
+      <div class="row" style="margin-top:8px;flex-wrap:wrap">
+        <button id="addBtn" class="primary">Add to queue</button>
+        <button id="sampleBtn">Load sample CSV</button>
+        <label class="row"><button id="csvBtn">Import CSV file…</button><input type="file" id="csvFile" accept=".csv,text/csv" hidden /></label>
+        <button id="exportBtn">Export CSV</button>
+        <button id="clearBtn" class="danger">Clear applied &amp; skipped</button>
+        <span id="msg" class="muted"></span>
+      </div>
+      <p class="muted" style="margin:8px 0 0">The <code>profile</code> column picks the resume profile by name (e.g. <code>Product</code>); blank uses the active one.</p>
+    </div>
+
+    <h2>Autopilot settings</h2>
+    <div class="card" id="settings">
+      <label>Applications per day (max) <input type="number" id="dailyCap" min="1" max="500" /></label>
+      <label>Pause between jobs, min (seconds) <input type="number" id="delayMinSec" min="30" max="900" /></label>
+      <label>Pause between jobs, max (seconds) <input type="number" id="delayMaxSec" min="30" max="1800" /></label>
+      <label>Give up on a job after (minutes) <input type="number" id="jobTimeoutMin" min="3" max="60" /></label>
+      <label>Pause when this many wait on you <input type="number" id="maxHeldTabs" min="1" max="50" /></label>
+      <label class="toggle" style="display:flex"><input type="checkbox" id="autoSubmit" /> Submit automatically when nothing is flagged (otherwise it stops at Submit for you to review)</label>
+    </div>
+
+    <script src="queue.js"></script>
+  </body>
+</html>

@@ -2,9 +2,9 @@
   "manifest_version": 3,
   "name": "Autofill Jobs",
   "short_name": "Autofill Jobs",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Local-only autofill for job applications (Workday, Greenhouse, Ashby, Lever) from multiple resume profiles.",
-  "permissions": ["storage", "unlimitedStorage", "sidePanel", "webNavigation", "tabs"],
+  "permissions": ["storage", "unlimitedStorage", "sidePanel", "webNavigation", "tabs", "alarms", "notifications"],
   "host_permissions": ["<all_urls>"],
   "background": { "service_worker": "background.js" },
   "content_scripts": [
