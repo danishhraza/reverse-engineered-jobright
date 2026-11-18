@@ -35,5 +35,11 @@ export function profileFacts(p: Profile): string {
   if (pref.noticePeriod) lines.push(`Notice period: ${pref.noticePeriod}`);
   if (pref.willingToRelocate !== undefined) lines.push(`Willing to relocate: ${pref.willingToRelocate ? 'yes' : 'no'}`);
   if (pref.remotePreference) lines.push(`Remote preference: ${pref.remotePreference}`);
+  if (pref.additionalInfo) lines.push(`Other notes from the candidate: ${pref.additionalInfo.slice(0, 1200)}`);
+  // Your own answers to recurring questions, so similar wordings get the same answer.
+  if (p.answers.length) {
+    lines.push('Answers the candidate gave to recurring questions (question pattern -> answer):');
+    for (const a of p.answers.slice(0, 40)) lines.push(`- ${a.pattern.replace(/^\/(.+)\/[a-z]*$/, '$1')} -> ${a.answer}`);
+  }
   return lines.join('\n');
 }

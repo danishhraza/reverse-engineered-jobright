@@ -17,7 +17,7 @@ interface Rule {
 const RULES: Rule[] = [
   // Optional extras (texts about the application, newsletters, talent communities): never ticked for you.
   { key: 'optIn', label: /\btext messages?\b|\bsms\b|\bmarketing\b|newsletter|promotional|job alerts?|talent (community|network|pool)|keep me (informed|updated|posted)|receive (e ?mails?|updates|communications|notifications|texts|alerts)|\bopt[ -]?in\b/ },
-  { key: 'consent', label: /\bi (have read|agree|acknowledge|consent|certify|accept|understand)\b|privacy (policy|notice)|terms (of|and)|\bconsent\b/ },
+  { key: 'consent', label: /\bi (have read|agree|acknowledge|consent|certify|accept|understand)\b|privacy (policy|notice)|terms (of|and)|\bconsent\b|process (my|your) (personal )?(data|information)|data processing/ },
   { key: 'coverLetter', label: /cover letter/, attr: /cover letter/ },
   { key: 'resume', label: /\b(resume|cv|curriculum vitae)\b/, attr: /\bresume\b|\bcv\b/, short: true },
   { key: 'preferredFirstName', label: /\b(preferred|nick) ?(first )?name\b|\bname you (go by|prefer)\b/, attr: /preferred (first )?name/ },
@@ -38,7 +38,7 @@ const RULES: Rule[] = [
   { key: 'portfolio', label: /portfolio|personal (web)?site|^website|^web site|^blog|other (website|url|link)/, attr: /portfolio|website/, short: true },
   { key: 'address2', label: /address (line )?2|\bapt\b|apartment|suite/, attr: /address (line )?2|address2/, short: true },
   { key: 'address1', label: /^(street |mailing |home |current )?address( line)?( 1)?$|^street/, attr: /address (line )?1|address1|street/, short: true },
-  { key: 'postalCode', label: /postal|\bzip\b|post code/, attr: /postal|\bzip\b/, short: true },
+  { key: 'postalCode', label: /postal|\bzip|\bpost ?code/, attr: /postal|\bzip|post ?code/, short: true },
   { key: 'county', label: /\bcounty\b/, attr: /\bcounty\b/, short: true },
   { key: 'schoolCity', label: /\b(institution|school|university|college)\b.*\b(city|location)\b/, short: true },
   { key: 'schoolState', label: /\b(institution|school|university|college)\b.*\b(state|province)\b/, short: true },
@@ -67,7 +67,7 @@ const RULES: Rule[] = [
   { key: 'veteran', label: /veteran|military|armed forces/ },
   { key: 'disability', label: /disabilit/ },
   { key: 'salary', label: /salary|compensation|pay (expectation|range|requirement)|desired pay|expected pay|rate expectation/ },
-  { key: 'startAvailability', label: /start date|when can you start|available to start|earliest (start|available)|availability to start|notice period|when (would|could) you (be able to )?start/ },
+  { key: 'startAvailability', label: /start date|when can you start|available to start|earliest (start|available)|availability to start|notice period|when (would|could) you (be able to )?start|how soon (can|could|would) you (be able to )?(start|join|begin)/ },
   { key: 'yearsExperience', label: /years of (relevant |professional |work )?experience|how many years/ },
   { key: 'workDescription', label: /^(job |role |position )?(description|responsibilities|duties)( of (your )?(role|position|job))?$|^(job|role|work) (description|responsibilities|duties)|^roles? and responsibilities$|describe your (role|responsibilities|duties)/, short: true },
   { key: 'currentCompany', label: /(current|most recent|present|latest) (company|employer|organi[sz]ation)|^company( name)?$|^employer( name)?$|^organi[sz]ation$/, short: true },

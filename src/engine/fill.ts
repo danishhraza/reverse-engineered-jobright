@@ -172,7 +172,8 @@ function row(f: Field, status: FieldReport['status'], confidence: number, key?: 
 async function fillOne(f: Field, opts: PageFillOptions): Promise<FieldReport | null> {
   const c = classify(f, opts.profile.answers, opts.learned);
   if (!c) {
-    if (!currentValue(f) && (f.required || f.choices?.length || f.kind === 'select')) {
+    // Optional dropdowns too: picking from a list is cheap and rarely wrong. Optional essays are left.
+    if (!currentValue(f) && (f.required || f.choices?.length || f.kind === 'select' || f.kind === 'combobox')) {
       const ai = await aiFill(f, opts);
       if (ai) return ai;
     }
@@ -203,7 +204,7 @@ async function fillOne(f: Field, opts: PageFillOptions): Promise<FieldReport | n
   // A phone's flag dropdown almost always defaults to the right country; not worth stopping for.
   if (c.key === 'phoneCountryCode' && r.status === 'flagged') return { ...r, status: 'skipped', reason: `Left the site's country code (${r.reason ?? 'no match'})` };
   // The answer we have isn't among the options ("How did you hear about us?" without LinkedIn): let the AI pick.
-  if (r.status === 'flagged' && (f.kind === 'select' || f.choices?.length) && !currentValue(f)) {
+  if (r.status === 'flagged' && (f.kind === 'select' || f.kind === 'combobox' || f.choices?.length) && !currentValue(f)) {
     const ai = await aiFill(f, opts, `My answer "${res.desired.text}" isn't one of the options.`);
     if (ai?.status === 'filled') return ai;
   }
@@ -251,6 +252,9 @@ function optionsOf(f: Field): string[] {
 /** Below this the AI's answer is shown as a suggestion, not filled in. */
 const AI_MIN_CONFIDENCE = 0.7;
 
+/** AI answers already given during one page fill, by question + options. */
+const aiMemo = new WeakMap<PageFillOptions, Map<string, AiAnswer | null>>();
+
 async function aiFill(f: Field, opts: PageFillOptions, note?: string): Promise<FieldReport | null> {
   if (!opts.ai || !f.label || f.kind === 'file' || f.kind === 'checkbox' || f.inputType === 'password') return null;
   let options = optionsOf(f);
@@ -263,8 +267,13 @@ async function aiFill(f: Field, opts: PageFillOptions, note?: string): Promise<F
     return r;
   };
   let a: AiAnswer | null = null;
+  // The same question twice on a page (a site that renders it twice, a re-scan): ask once.
+  const memo = aiMemo.get(opts) ?? new Map<string, AiAnswer | null>();
+  aiMemo.set(opts, memo);
+  const key = `${norm(f.label)}|${options.map(norm).join('|')}|${note ?? ''}`;
   try {
-    a = await ai({ question: f.label, kind: f.kind, options, required: f.required, note });
+    a = memo.has(key) ? memo.get(key)! : await ai({ question: f.label, kind: f.kind, options, required: f.required, note });
+    memo.set(key, a);
   } catch (e) {
     rethrowCancel(e);
     const msg = String((e as Error)?.message ?? e).slice(0, 120);

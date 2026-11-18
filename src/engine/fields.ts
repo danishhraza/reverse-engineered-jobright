@@ -122,12 +122,15 @@ export function isChecked(el: HTMLElement): boolean {
 }
 
 /** The nearest preceding text block inside `container` that comes before `el`. */
+const VALUE_NODES = '[class*="single-value" i], [class*="singleValue"], [class*="placeholder" i], [class*="multi-value" i]';
+
 function precedingText(el: Element, maxLevels = 5): string {
   let node: Element | null = el;
   for (let level = 0; level < maxLevels && node; level++) {
     let sib = node.previousElementSibling;
     while (sib) {
-      if (!sib.matches('script, style') && isVisible(sib)) {
+      // A dropdown's current value or placeholder sits right before its input: it isn't the question.
+      if (!sib.matches(`script, style, ${VALUE_NODES}`) && isVisible(sib)) {
         const hasControls = sib.querySelector(CONTROL_SEL);
         const t = cleanText(sib);
         if (t && (!hasControls || sib.matches('label, legend'))) return t;
@@ -580,7 +583,12 @@ function findYesNoByText(roots: ParentNode[], exclude: string, covered: Element[
       if (!/^(yes|no)$/i.test(word)) continue;
       const el = t.parentElement;
       if (!el || (el.textContent ?? '').trim() !== word || el.matches('option, script, style, button, [role="button"], [role="option"]') || el.closest(exclude)) continue;
-      if (!isVisible(el) || covered.some((c) => composedContains(c, el) || composedContains(el, c))) continue;
+      if (!isVisible(el)) continue;
+      // The word is a radio's own label — wrapped around it, pointing at it with for=, or right
+      // beside it in the same box: already a field.
+      const label = el.closest('label') as HTMLLabelElement | null;
+      const near = [label, label?.control, el.parentElement].filter(Boolean) as Element[];
+      if (covered.some((c) => composedContains(c, el) || composedContains(el, c) || near.some((n) => n === c || composedContains(n, c)))) continue;
       items.push(el);
     }
   }
@@ -611,10 +619,14 @@ export function comboboxDisplay(el: HTMLElement): string {
     const v = (el as HTMLInputElement).value;
     if (v) return v;
   }
-  // react-select / Greenhouse: the chosen value renders in a sibling "single-value" node.
-  const container = el.closest('[class*="container"], [class*="select"], [data-automation-id^="formField-"], .field') ?? el.parentElement;
-  const single = container?.querySelector('[class*="single-value"], [class*="singleValue"], [data-automation-id="selectedItem"], [class*="multi-value__label"]');
-  if (single) return cleanText(single);
+  // react-select / Greenhouse: the chosen value renders in a "single-value" node a few levels up
+  // (react-select wraps its input in an "…input-container", which isn't the whole control).
+  let n: HTMLElement | null = el.parentElement;
+  for (let i = 0; i < 4 && n && !n.matches('form, body'); i++, n = n.parentElement) {
+    const single = n.querySelector('[class*="single-value"], [class*="singleValue"], [data-automation-id="selectedItem"], [class*="multi-value__label"]');
+    if (single) return cleanText(single);
+    if (n.matches('[data-automation-id^="formField-"], .field')) break;
+  }
   if (el.tagName !== 'INPUT') {
     const t = cleanText(el);
     if (t && !PLACEHOLDER.test(t) && t.length < 80) return t;
@@ -643,7 +655,9 @@ export function valueBoxText(el: HTMLElement): string {
     box = up;
     const clone = box.cloneNode(true) as HTMLElement;
     clone
-      .querySelectorAll('label, legend, h1, h2, h3, h4, h5, h6, [role="option"], [role="listbox"], [role="alert"], [aria-live], [class*="error" i], [class*="help" i], [class*="hint" i], [hidden], .rej-ui')
+      .querySelectorAll(
+        'label, legend, h1, h2, h3, h4, h5, h6, [role="option"], [role="listbox"], [role="alert"], [aria-live], [class*="error" i], [class*="help" i], [class*="hint" i], [class*="placeholder" i], [hidden], .rej-ui',
+      )
       .forEach((n) => n.remove());
     for (const id of labelIds) clone.querySelector(`[id="${id}"]`)?.remove();
     const t = squash(clone.textContent ?? '').replace(/[▾▼⌄⌃▲*]/g, '').trim();

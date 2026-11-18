@@ -229,7 +229,9 @@ async function formStep(req: StepRequest, onReport: (r: FillReport) => void): Pr
     autoAdvance: true,
     learn: false,
     autopilot: true,
-    agreeToTerms: req.autoSubmit,
+    // You asked for "I agree" on consent / privacy / data-processing boxes and pop-ups, always.
+    // Optional opt-ins (texts, newsletters) are a separate rule and stay unticked.
+    agreeToTerms: true,
     ai: setup.ai,
     onReport,
   });
