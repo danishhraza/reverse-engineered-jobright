@@ -95,9 +95,24 @@ function deep<T extends Element>(roots: ParentNode[], sel: string): T[] {
 }
 
 /** The element hosting `el`'s shadow root, if it lives in one. */
-function shadowHost(el: Element): HTMLElement | null {
+export function shadowHost(el: Element): HTMLElement | null {
   const r = el.getRootNode();
   return r instanceof ShadowRoot ? (r.host as HTMLElement) : null;
+}
+
+/** closest() that also climbs out of shadow roots to their hosts. */
+function composedClosest(el: Element, test: (e: Element) => boolean): HTMLElement | null {
+  for (let n: Element | null = el; n; n = n.parentElement ?? shadowHost(n)) if (test(n)) return n as HTMLElement;
+  return null;
+}
+
+const GROUP_SEL = 'fieldset, [role="radiogroup"], [role="group"], [data-automation-id^="formField-"]';
+/** A radio/checkbox group's container: fieldset, ARIA group, or a <x-radio-group> web component. */
+const isGroup = (e: Element) => e.matches(GROUP_SEL) || /radio-?group|checkbox-?group|choice-?group/i.test(e.tagName);
+
+/** Radio or ARIA radio/checkbox: is it selected? */
+export function isChecked(el: HTMLElement): boolean {
+  return el instanceof HTMLInputElement ? el.checked : el.getAttribute('aria-checked') === 'true';
 }
 
 /** The nearest preceding text block inside `container` that comes before `el`. */
@@ -183,7 +198,11 @@ function groupLabel(container: Element): string {
     const l = wd.querySelector('label, legend');
     if (l) return cleanText(l);
   }
-  return precedingText(container, 6);
+  const pre = precedingText(container, 6);
+  if (pre) return pre;
+  // Inside a web component: the question is outside it, next to the group's host.
+  const host = shadowHost(container);
+  return host ? groupLabel(composedClosest(host, isGroup) ?? host) : '';
 }
 
 function hintsFor(el: Element): string {
@@ -211,13 +230,21 @@ function rawLabelIncludesStar(el: HTMLElement): string {
 }
 
 function choiceLabel(input: HTMLInputElement): string {
-  const l = input.labels?.[0];
-  if (l) return cleanText(l);
-  const aria = input.getAttribute('aria-label');
-  if (aria) return aria;
-  const next = input.nextElementSibling;
-  if (next) return cleanText(next);
-  return cleanText(input.parentElement) || input.value;
+  const own = cleanText(input.labels?.[0]) || input.getAttribute('aria-label') || cleanText(input.nextElementSibling) || cleanText(input.parentElement);
+  if (own) return own;
+  // A radio web component (<x-radio>Yes</x-radio>): its text is slotted in from outside.
+  const host = shadowHost(input);
+  return (host && (cleanText(host) || host.getAttribute('label') || host.getAttribute('aria-label'))) || input.value;
+}
+
+/** Where to click for a radio/checkbox the page draws itself (the real input is hidden). */
+export function clickTarget(input: HTMLElement): HTMLElement {
+  if (isVisible(input)) return input;
+  const label = (input as HTMLInputElement).labels?.[0];
+  if (label && isVisible(label)) return label;
+  const host = shadowHost(input);
+  if (host && isVisible(host)) return host;
+  return input.parentElement && isVisible(input.parentElement) ? input.parentElement : input;
 }
 
 function isCombobox(el: Element): boolean {
@@ -287,7 +314,8 @@ export function scanFields(opts: ScanOptions = {}): Field[] {
     }
     if (!isVisible(el) && !(type === 'radio' || type === 'checkbox')) continue;
     if (type === 'radio') {
-      const key = input.name || groupKey(input);
+      // Radios inside web components each live in their own shadow root: group by the container around them.
+      const key = shadowHost(input) ? groupKey(input) : input.name || groupKey(input);
       radiosByGroup.set(key, [...(radiosByGroup.get(key) ?? []), input]);
       continue;
     }
@@ -315,16 +343,27 @@ export function scanFields(opts: ScanOptions = {}): Field[] {
   }
 
   for (const group of radiosByGroup.values()) {
-    const visible = group.filter((r) => isVisible(r) || (r.labels?.[0] && isVisible(r.labels[0])));
+    const visible = group.filter((r) => clickTarget(r) !== r || isVisible(r));
     if (!visible.length) continue;
     const first = visible[0];
+    const container = composedClosest(first, (e) => e.matches('fieldset, [role="radiogroup"]') || /radio-?group/i.test(e.tagName));
     push({
       kind: 'radio',
       el: first,
-      rawLabel: groupLabel(first.closest('fieldset, [role="radiogroup"]') ?? first.parentElement ?? first),
+      rawLabel: groupLabel(container ?? first.parentElement ?? first),
       hints: hintsFor(first),
       choices: visible.map((r) => ({ label: choiceLabel(r), el: r })),
     });
+  }
+
+  // Radio groups drawn without <input>s: role="radiogroup" > role="radio" (aria-checked).
+  for (const g of deep<HTMLElement>(roots, '[role="radiogroup"]')) {
+    if (g.closest(exclude) || seen.has(g) || !isVisible(g) || g.querySelector('input[type="radio"]')) continue;
+    const radios = Array.from(g.querySelectorAll<HTMLElement>('[role="radio"]')).filter((r) => isVisible(r));
+    if (radios.length < 2) continue;
+    seen.add(g);
+    const label = textOfIds(g.getAttribute('aria-labelledby'), g) || g.getAttribute('aria-label') || groupLabel(g);
+    push({ kind: 'radio', el: radios[0], rawLabel: label, hints: hintsFor(g), choices: radios.map((r) => ({ label: cleanText(r) || r.getAttribute('aria-label') || '', el: r })) });
   }
 
   for (const group of checkboxesByGroup.values()) {
@@ -355,13 +394,23 @@ export function scanFields(opts: ScanOptions = {}): Field[] {
   }
 
   // Document order makes filling feel natural and handles dependent fields (country before state).
-  fields.sort((a, b) => (a.el.compareDocumentPosition(b.el) & Node.DOCUMENT_POSITION_FOLLOWING ? -1 : 1));
+  // A field inside a web component sorts where its outermost host is.
+  const anchor = (el: Element) => {
+    let n = el;
+    for (let h = shadowHost(n); h; h = shadowHost(n)) n = h;
+    return n;
+  };
+  fields.sort((a, b) => {
+    const [x, y] = [anchor(a.el), anchor(b.el)];
+    if (x === y) return 0;
+    return x.compareDocumentPosition(y) & Node.DOCUMENT_POSITION_FOLLOWING ? -1 : 1;
+  });
   return fields;
 }
 
 function groupKey(input: HTMLInputElement): string {
-  const c = input.closest('fieldset, [role="radiogroup"], [role="group"], [data-automation-id^="formField-"]');
-  return c ? `grp-${stampId(c as HTMLElement)}` : `solo-${stampId(input)}`;
+  const c = composedClosest(input, isGroup);
+  return c ? `grp-${stampId(c)}` : `solo-${stampId(input)}`;
 }
 
 function commonAncestor(els: Element[]): Element | null {
@@ -439,7 +488,7 @@ export function currentValue(f: Field): string {
     case 'radio':
     case 'checkboxGroup':
       return (f.choices ?? [])
-        .filter((c) => (c.el as HTMLInputElement).checked)
+        .filter((c) => isChecked(c.el))
         .map((c) => c.label)
         .join(', ');
     case 'checkbox':

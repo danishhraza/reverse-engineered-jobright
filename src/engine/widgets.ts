@@ -1,6 +1,6 @@
 import { cleanText, isVisible, pressKey, realClick, setNativeValue, sleep, squash, typeText, waitFor, waitForSettle } from './dom';
 import { checkCancel, isCancelled, status } from './control';
-import { comboboxDisplay, currentValue, type Field } from './fields';
+import { clickTarget, comboboxDisplay, currentValue, isChecked, shadowHost, type Field } from './fields';
 import { isPlaceholderOption, jaccard, matchOption, norm, type Desired } from './match';
 
 // One function per widget kind. Each returns how confident we are that the
@@ -191,14 +191,18 @@ async function fillChoice(f: Field, d: Desired, overwrite: boolean): Promise<Wid
   if (cur === choice.label) return { ok: true, value: cur, match: m.score };
   if (cur && !overwrite) return { ok: true, value: cur, match: 1, skipped: true, reason: 'Already answered' };
   const input = choice.el as HTMLInputElement;
-  const target = f.kind === 'radio' && !isVisible(input) && input.labels?.[0] ? input.labels[0] : input;
+  // Custom-drawn radios hide the real input: click what you'd click (its label or the component).
+  const target = f.kind === 'radio' ? clickTarget(input) : input;
   realClick(target);
-  await sleep(50);
-  if (f.kind === 'radio' && !input.checked) {
-    // Some frameworks only listen to label clicks.
-    if (input.labels?.[0] && target !== input.labels[0]) realClick(input.labels[0]);
-    await sleep(50);
-    if (!input.checked) return { ok: false, match: 0, reason: 'Radio did not select' };
+  await sleep(80);
+  if (f.kind === 'radio' && !isChecked(input)) {
+    // Some frameworks only listen to one of the input / its label / the component.
+    for (const alt of [input, input.labels?.[0], shadowHost(input)]) {
+      if (!alt || alt === target || isChecked(input)) continue;
+      realClick(alt);
+      await sleep(80);
+    }
+    if (!isChecked(input)) return { ok: false, match: 0, reason: 'Radio did not select' };
   }
   return { ok: true, value: choice.label, match: m.score };
 }

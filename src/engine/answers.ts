@@ -57,6 +57,8 @@ const RULES: Rule[] = [
   { key: 'referred', label: /were you referred|referred by|employee referral|know anyone (who works|at)/ },
   { key: 'howDidYouHear', label: /how (did )?you (hear|heard|find|found|learn|learned|come across)|where did you (hear|find|learn|see)|^source$|referral source|how .* find (out )?about/, attr: /\bsource\b/ },
   { key: 'school', label: /which (university|school|college)|(university|school|college) (are you|did you)/ },
+  // "Will you require relocation assistance?" is not "Are you willing to relocate?".
+  { key: 'relocationAssistance', label: /relocation (assistance|package|support|help|benefits?|expenses?|reimbursement)|(need|require|requiring|expect)\b.*\brelocation\b/ },
   { key: 'relocate', label: /relocat/ },
   { key: 'hispanic', label: /hispanic|latin[oax]/ },
   { key: 'ethnicity', label: /\b(race|ethnicity|ethnic|racial)\b/ },
@@ -335,6 +337,8 @@ export function resolve(c: Classification, p: Profile, field: Field): Resolution
       return p.preferences.howDidYouHear
         ? t(p.preferences.howDidYouHear, ['LinkedIn', 'Job Board', 'Online Job Board', 'Internet', 'Job Posting', 'Company Website'])
         : { flag: 'Set preferences.howDidYouHear' };
+    case 'relocationAssistance':
+      return { flag: 'Relocation assistance — answer it yourself, or add a standing answer for the AI' };
     case 'relocate':
       return p.preferences.willingToRelocate === undefined ? { flag: 'Set preferences.willingToRelocate' } : { desired: yes(p.preferences.willingToRelocate) };
     case 'hispanic':

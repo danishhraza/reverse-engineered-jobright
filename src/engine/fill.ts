@@ -200,7 +200,7 @@ async function fillOne(f: Field, opts: PageFillOptions): Promise<FieldReport | n
 }
 
 /** Questions the rules recognise but can't answer from the profile alone. */
-const AI_KEYS = new Set(['yearsExperience', 'howDidYouHear']);
+const AI_KEYS = new Set(['yearsExperience', 'howDidYouHear', 'relocationAssistance']);
 
 /** Fill `f` with `desired`, retrying, and score the result. */
 async function applyDesired(f: Field, desired: Desired, score: number, key: string, opts: PageFillOptions, note?: string): Promise<FieldReport> {

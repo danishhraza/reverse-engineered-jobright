@@ -62,7 +62,7 @@ export function setNativeValue(el: HTMLInputElement | HTMLTextAreaElement | HTML
   const setter = nativeSetter(el);
   if (setter) setter.call(el, value);
   else el.value = value;
-  el.dispatchEvent(new Event('input', { bubbles: true }));
+  el.dispatchEvent(new Event('input', { bubbles: true, composed: true }));
   el.dispatchEvent(new Event('change', { bubbles: true }));
 }
 
@@ -72,7 +72,8 @@ export function fire(el: Element, type: string, init: EventInit = {}): void {
 
 /** A click with the full pointer/mouse sequence; many custom widgets listen to mousedown. */
 export function realClick(el: Element): void {
-  const opts = { bubbles: true, cancelable: true, button: 0 };
+  // composed: like a real click, it reaches listeners outside a web component's shadow root.
+  const opts = { bubbles: true, cancelable: true, composed: true, button: 0 };
   const P = typeof PointerEvent === 'function' ? PointerEvent : MouseEvent;
   el.dispatchEvent(new P('pointerdown', opts));
   el.dispatchEvent(new MouseEvent('mousedown', opts));

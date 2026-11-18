@@ -229,6 +229,58 @@ describe('Next anyway (autopilot)', () => {
   }, 40000);
 });
 
+describe('ADP-style questions page', () => {
+  // <x-radio>Yes</x-radio>: each radio is a web component with its own <input> in a shadow root.
+  class XRadio extends HTMLElement {
+    connectedCallback() {
+      if (this.shadowRoot) return;
+      const sr = this.attachShadow({ mode: 'open' });
+      sr.innerHTML = '<label><input type="radio"><slot></slot></label>';
+      const input = sr.querySelector('input')!;
+      // Picking one clears the others in the same group, like the real component.
+      input.addEventListener('change', () => {
+        for (const other of Array.from(this.parentElement!.querySelectorAll('x-radio'))) {
+          if (other !== this) (other.shadowRoot!.querySelector('input') as HTMLInputElement).checked = false;
+        }
+      });
+    }
+  }
+  if (!customElements.get('x-radio')) customElements.define('x-radio', XRadio);
+
+  beforeEach(() => {
+    document.body.innerHTML = `
+      <form><h3>Please answer the following questions:</h3>
+        <div class="q"><p>1. Are you legally authorized to work in the United States? *</p>
+          <x-radio-group id="auth"><x-radio>Yes</x-radio><x-radio>No</x-radio></x-radio-group></div>
+        <div class="q"><p>2. Will you now, or in the future, require sponsorship for employment visa status (e.g. H-1B visa status) *</p>
+          <x-radio-group id="spons"><x-radio>Yes</x-radio><x-radio>No</x-radio></x-radio-group></div>
+        <div class="q"><p id="q4">4. Will you require relocation assistance? *</p>
+          <div role="radiogroup" aria-labelledby="q4" id="reloc">
+            <div role="radio" aria-checked="false" tabindex="0">Yes</div><div role="radio" aria-checked="false" tabindex="0">No</div></div></div>
+      </form>`;
+    for (const r of Array.from(document.querySelectorAll<HTMLElement>('[role="radio"]'))) {
+      r.addEventListener('click', () => {
+        for (const o of Array.from(r.parentElement!.children)) o.setAttribute('aria-checked', String(o === r));
+      });
+    }
+  });
+
+  const picked = (groupId: string) =>
+    Array.from(document.querySelectorAll(`#${groupId} x-radio`))
+      .filter((x) => (x.shadowRoot!.querySelector('input') as HTMLInputElement).checked)
+      .map((x) => x.textContent);
+
+  it('answers Yes/No radios that live inside web components', async () => {
+    const ai: AiAsk = async (q) => (/relocation/i.test(q.question) ? { answer: 'No', confidence: 0.9 } : null);
+    const report = await run({ ...base, profile: exampleProfile('swe'), autoAdvance: false, ai });
+    expect(picked('auth')).toEqual(['Yes']);
+    expect(picked('spons')).toEqual(['No']);
+    // A role="radio" group; relocation *assistance* went to the AI, not "willing to relocate".
+    expect(document.querySelector('#reloc [aria-checked="true"]')?.textContent).toBe('No');
+    expect(report.fields.find((f) => /relocation/i.test(f.label))?.reason).toMatch(/AI/);
+  }, 30000);
+});
+
 describe('fields inside web components (shadow DOM)', () => {
   it('finds and fills an input inside a custom element, labelled by the text next to it', async () => {
     document.body.innerHTML = `<form><div class="f"><span>First Name*</span><x-input id="fn"></x-input></div><div class="f"><span>Last Name*</span><x-input id="ln"></x-input></div></form>`;
