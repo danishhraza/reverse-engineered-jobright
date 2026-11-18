@@ -76,8 +76,11 @@ export function realClick(el: Element): void {
   const opts = { bubbles: true, cancelable: true, composed: true, button: 0 };
   const P = typeof PointerEvent === 'function' ? PointerEvent : MouseEvent;
   el.dispatchEvent(new P('pointerdown', opts));
-  el.dispatchEvent(new MouseEvent('mousedown', opts));
-  if (el instanceof HTMLElement) el.focus?.({ preventScroll: true });
+  const down = new MouseEvent('mousedown', opts);
+  el.dispatchEvent(down);
+  // A real mousedown moves focus unless the page cancels it — dropdown menus (react-select) do,
+  // to keep focus in their input. Moving it anyway closes their menu before the click lands.
+  if (!down.defaultPrevented && el instanceof HTMLElement) el.focus?.({ preventScroll: true });
   el.dispatchEvent(new P('pointerup', opts));
   el.dispatchEvent(new MouseEvent('mouseup', opts));
   el.dispatchEvent(new MouseEvent('click', opts));

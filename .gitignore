@@ -6,3 +6,6 @@ dist/
 profiles/*
 !profiles/example.json
 *.pdf
+
+# Debug page build output
+debug/out/

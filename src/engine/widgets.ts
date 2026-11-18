@@ -325,9 +325,12 @@ async function fillCombobox(f: Field, d: Desired, overwrite: boolean): Promise<W
   if (before && displayMatches(before, d, d.text)) return { ok: true, value: before, match: 0.95 };
 
   const typable = trigger.tagName === 'INPUT' && !(trigger as HTMLInputElement).readOnly ? (trigger as HTMLInputElement) : null;
-  // Search boxes: try the answer, a shorter form, an alternate, then an empty query (full list).
+  // First just open it and read the whole list: most dropdowns are short lists in their own
+  // wording, so pick from what's there. Only search-as-you-type boxes whose list starts empty
+  // (or is too long to show everything) get typed queries: the answer, a shorter form, an alternate.
   // Plain dropdowns: open twice (the first open sometimes only focuses).
-  const queries = typable ? [...queriesFor(d), ''] : ['', ''];
+  const queries = typable ? ['', ...queriesFor(d)] : ['', ''];
+  let triedEnter = false;
   let best: { label: string; score: number } | null = null;
   const optionsNow = () => {
     const o = visibleOptions(trigger);
@@ -340,13 +343,19 @@ async function fillCombobox(f: Field, d: Desired, overwrite: boolean): Promise<W
       checkCancel();
     }
     const query = queries[attempt];
-    if (attempt) status(`${fieldName(f)}: no match yet, trying ${query ? `"${query}"` : 'the full list'} (${attempt + 1} of ${queries.length})…`);
+    if (attempt) status(`${fieldName(f)}: no match in the list yet, searching ${query ? `"${query}"` : 'again'} (${attempt + 1} of ${queries.length})…`);
     realClick(trigger);
     if (typable) typeText(typable, query);
 
-    let options = await waitFor(optionsNow, { timeout: 2500 });
-    if (!options && typable && attempt === 0) {
+    let options = await waitFor(optionsNow, { timeout: query ? 2500 : 1200 });
+    if (!options && !query) {
+      // Unfocused window: react-select-style lists open on focus, which never arrives; the down arrow opens them.
+      pressKey(trigger, 'ArrowDown');
+      options = await waitFor(optionsNow, { timeout: 1500 });
+    }
+    if (!options && typable && query && !triedEnter) {
       // Workday-style prompts only search on Enter.
+      triedEnter = true;
       pressKey(typable, 'Enter');
       options = await waitFor(optionsNow, { timeout: 2500 });
     }
@@ -575,7 +584,13 @@ async function fillPlaces(f: Field, d: Desired, overwrite: boolean): Promise<Wid
 export async function peekOptions(f: Field): Promise<string[]> {
   const trigger = f.el;
   realClick(trigger);
-  const shown = await waitFor(() => (visibleOptions(trigger).length ? true : null), { timeout: 2500 });
+  let shown = await waitFor(() => (visibleOptions(trigger).length ? true : null), { timeout: 1200 });
+  if (!shown) {
+    // A window without focus never tells the dropdown it was focused, and some (react-select)
+    // only open on focus; the down arrow opens them anyway.
+    pressKey(trigger, 'ArrowDown');
+    shown = await waitFor(() => (visibleOptions(trigger).length ? true : null), { timeout: 1500 });
+  }
   if (shown) await waitForSettle(200, 1000);
   const labels = visibleOptions(trigger)
     .map((o) => cleanText(o))
