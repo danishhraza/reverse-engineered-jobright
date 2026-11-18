@@ -299,7 +299,22 @@ async function submit(): Promise<StepOutcome> {
   if (!btn) return { kind: 'needs-you', reason: "Couldn't find the Submit button" };
   const before = location.href;
   realClick(btn);
-  const seen = await waitFor(() => (APPLIED.test(pageText()) ? 'applied' : location.href !== before ? 'moved' : null), { timeout: 20000, interval: 400 });
+  // "Before submitting, please review this notice… I Agree": press it and keep waiting.
+  let pressed = 0;
+  const seen = await waitFor(
+    () => {
+      if (APPLIED.test(pageText())) return 'applied';
+      if (location.href !== before) return 'moved';
+      const b = pressed < 2 ? findBlocker() : null;
+      if (b) {
+        pressed++;
+        markTried(b.button);
+        realClick(b.button);
+      }
+      return null;
+    },
+    { timeout: 20000, interval: 400 },
+  );
   if (seen === 'applied') return { kind: 'applied', reason: 'Submitted' };
   if (seen === 'moved') {
     await sleep(1500);

@@ -5,7 +5,7 @@ import type { AiQuestion } from './engine/fill';
 import { norm } from './engine/match';
 import { askGuide, askModel } from './llm/openrouter';
 import { getAiAnswers, getLlm, saveAiAnswer } from './queue/store';
-import { noteOnJob, onAlarm, onPageLoaded, onReadyResult, onStepResult, recordAi, onTabCreated, onTabRemoved, pauseRunner, queueAction, recover, startRunner, type QueueAction } from './queue/runner';
+import { aiDecided, noteOnJob, onAlarm, onPageLoaded, onReadyResult, onStepResult, recordAi, onTabCreated, onTabRemoved, pauseRunner, queueAction, recover, startRunner, type QueueAction } from './queue/runner';
 
 // Routes "fill this tab" to every frame and keeps the latest report per frame
 // (chrome.storage.session) so the side panel can show it when opened later.
@@ -33,9 +33,10 @@ chrome.notifications?.onClicked.addListener(() => {
 
 /** Answers are reused across applications: same question + options = same answer. */
 async function answerQuestion(q: AiQuestion, facts: string, job: string, tabId?: number): Promise<{ answer?: string; confidence?: number; error?: string }> {
+  const asked = { what: q.question, options: q.options, note: q.note };
   const llm = await getLlm();
   if (!llm.enabled || !llm.apiKey) {
-    if (tabId !== undefined) await recordAi(tabId, { what: q.question, result: 'skipped — AI is off (no OpenRouter key in Options)' });
+    if (tabId !== undefined) await recordAi(tabId, { ...asked, result: 'skipped — AI is off (no OpenRouter key in Options)', decision: 'AI off — left for you' });
     return {};
   }
   // Questions naming the company ("…working at Deloitte?") differ per company, so the job isn't part of the key;
@@ -43,17 +44,17 @@ async function answerQuestion(q: AiQuestion, facts: string, job: string, tabId?:
   const key = `${norm(q.question)}|${q.options.map(norm).join('|')}|${norm(q.note ?? '')}`;
   const cached = (await getAiAnswers())[key];
   if (cached && cached.confidence >= 0.7) {
-    if (tabId !== undefined) await recordAi(tabId, { what: q.question, result: `"${cached.answer}" (${cached.confidence}, reused)` });
+    if (tabId !== undefined) await recordAi(tabId, { ...asked, result: `"${cached.answer}" (${cached.confidence}, reused)`, answer: cached.answer, confidence: cached.confidence });
     return cached;
   }
   try {
     const { answer: a, usage } = await askModel(llm, q, { facts, job });
-    if (tabId !== undefined) await recordAi(tabId, { what: q.question, result: a ? `"${a.answer}" (${a.confidence})` : 'no usable answer', usage });
+    if (tabId !== undefined) await recordAi(tabId, { ...asked, result: a ? `"${a.answer}" (${a.confidence})` : 'no usable answer', usage, answer: a?.answer, confidence: a?.confidence });
     if (!a) return { error: 'The model gave no usable answer' };
     if (a.confidence >= 0.7) await saveAiAnswer(key, a);
     return a;
   } catch (e) {
-    if (tabId !== undefined) await recordAi(tabId, { what: q.question, result: `error: ${(e as Error).message}` });
+    if (tabId !== undefined) await recordAi(tabId, { ...asked, result: `error: ${(e as Error).message}` });
     return { error: (e as Error).message };
   }
 }
@@ -210,6 +211,10 @@ chrome.runtime.onMessage.addListener((msg, sender, reply) => {
     })();
     return true;
   }
+  if (msg.type === 'aiDecided' && sender.tab?.id !== undefined) {
+    void aiDecided(sender.tab.id, msg.question, msg.decision);
+    return;
+  }
   if (msg.type === 'dialog' && sender.tab?.id !== undefined) {
     void noteOnJob(sender.tab.id, `Browser ${msg.kind} "${String(msg.message).slice(0, 120)}" — answered ${msg.answer}`);
     return;
@@ -242,12 +247,24 @@ chrome.runtime.onMessage.addListener((msg, sender, reply) => {
     (async () => {
       const llm = await getLlm();
       if (!llm.enabled || !llm.apiKey) {
-        if (tabId !== undefined) await recordAi(tabId, { what: 'which button to press', result: 'skipped — AI is off (no OpenRouter key in Options)' });
+        if (tabId !== undefined) await recordAi(tabId, { what: 'Which button to press', result: 'skipped — AI is off (no OpenRouter key in Options)', decision: 'AI off — left for you' });
         return reply({ error: 'AI answers are off (no OpenRouter key)' });
       }
       const { answer: a, usage } = await askGuide(llm, msg.page);
       const picked = a && a.choice >= 0 ? `"${msg.page.buttons[a.choice]?.text}" (${a.confidence})` : 'none';
-      if (tabId !== undefined) await recordAi(tabId, { what: 'which button to press', result: `${picked} — ${a?.reason ?? ''}`, usage });
+      const buttons: string[] = msg.page.buttons.map((b: { text: string }) => b.text);
+      if (tabId !== undefined) {
+        await recordAi(tabId, {
+          what: `Which button to press (${msg.page.title || msg.page.url})`,
+          result: `${picked} — ${a?.reason ?? ''}`,
+          usage,
+          options: buttons,
+          answer: a && a.choice >= 0 ? `${buttons[a.choice]} — ${a.reason}` : `none — ${a?.reason ?? ''}`,
+          confidence: a?.confidence,
+          // Same rule as the page: it presses only at 0.6 or more.
+          decision: a && a.choice >= 0 && a.confidence >= 0.6 ? 'Pressed it' : 'Not pressed — left for you',
+        });
+      }
       reply(a ?? { error: 'The model gave no usable answer' });
     })().catch((e) => reply({ error: (e as Error).message }));
     return true;

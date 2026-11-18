@@ -39,8 +39,25 @@ export interface QueueJob {
   submitAt?: number;
   /** AI calls made while applying: count, tokens, and dollars when OpenRouter reports them. */
   ai?: { calls: number; tokensIn: number; tokensOut: number; cost: number };
+  /** Every AI call in full: what was asked, what it answered, and what was done with it. */
+  aiLog?: AiLogEntry[];
   /** Last few things the runner did, newest last. */
   log: string[];
+}
+
+export interface AiLogEntry {
+  at: number;
+  question: string;
+  /** The options it had to choose from (empty for free text). */
+  options?: string[];
+  /** Extra context sent ("This is for Education 2…"). */
+  note?: string;
+  answer?: string;
+  confidence?: number;
+  /** Filled in / only suggested / rejected… (from the page). */
+  decision?: string;
+  tokens?: number;
+  cost?: number;
 }
 
 export interface AutopilotSettings {

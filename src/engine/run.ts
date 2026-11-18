@@ -5,6 +5,7 @@ import { cleanText, isVisible, realClick, sleep, waitFor, waitForSettle } from '
 import { currentValue, fieldFor, findById, scanFields } from './fields';
 import { fillPage, fillSingle, type AiAsk } from './fill';
 import { disabledNext, genericFinal, genericNext, genericSignature } from './nav';
+import { findBlocker, markTried } from '../content/blockers';
 
 /** A visible error banner or invalid-field message after pressing Next (sites without an adapter). */
 function pageErrors(): boolean {
@@ -110,10 +111,23 @@ export async function run(opts: RunOptions): Promise<FillReport> {
       const hadErrors = generic && pageErrors();
       opts.onNavigate?.(page + 1);
       realClick(next);
-      const moved = await waitFor(() => (signature() !== sig ? 'moved' : adapter.hasErrors?.() || (generic && !hadErrors && pageErrors()) ? 'error' : null), {
-        timeout: 15000,
-        interval: 250,
-      });
+      // A pop-up that appears on Next ("Notice… I Agree") is pressed through, then we keep waiting.
+      let pressed = 0;
+      const moved = await waitFor(
+        () => {
+          if (signature() !== sig) return 'moved';
+          const b = opts.autopilot && pressed < 2 ? findBlocker() : null;
+          if (b) {
+            pressed++;
+            markTried(b.button);
+            realClick(b.button);
+            status(`Pop-up after Next: pressed "${b.label}"…`);
+            return null;
+          }
+          return adapter.hasErrors?.() || (generic && !hadErrors && pageErrors()) ? 'error' : null;
+        },
+        { timeout: 15000, interval: 250 },
+      );
       if (moved !== 'moved' && tryAnyway) {
         report.stop = 'blocked';
         report.message = blockedMsg;

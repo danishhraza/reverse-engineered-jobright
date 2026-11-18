@@ -32,6 +32,9 @@
       .pill.skipped { background: var(--border); color: var(--muted); }
       .pill.failed { background: rgba(239,68,68,.15); color: var(--bad); }
       #add textarea { min-height: 90px; }
+      table.ailog { margin-top: 8px; font-size: 12px; background: var(--panel); border-radius: 8px; }
+      table.ailog td, table.ailog th { padding: 5px 6px; }
+      table.ailog details { font-size: 11px; color: var(--muted); }
       #settings label { display: grid; grid-template-columns: 260px 120px; gap: 8px; align-items: center; margin-bottom: 6px; }
       #settings input[type=number] { font: inherit; padding: 5px 8px; border: 1px solid var(--border); border-radius: 6px; background: var(--bg); color: var(--text); }
       #msg { min-height: 18px; }
@@ -70,6 +73,7 @@
         <button id="sampleBtn">Load sample CSV</button>
         <label class="row"><button id="csvBtn">Import CSV file…</button><input type="file" id="csvFile" accept=".csv,text/csv" hidden /></label>
         <button id="exportBtn">Export CSV</button>
+        <button id="exportAiBtn" title="Every AI question, its options, the answer and what was done with it">Export AI log</button>
         <button id="clearBtn" class="danger">Clear applied &amp; skipped</button>
         <span id="msg" class="muted"></span>
       </div>

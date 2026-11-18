@@ -406,7 +406,15 @@ export interface AiCall {
   what: string;
   result: string;
   usage?: { tokensIn: number; tokensOut: number; cost?: number };
+  /** For the full AI log. */
+  options?: string[];
+  note?: string;
+  answer?: string;
+  confidence?: number;
+  decision?: string;
 }
+
+const AI_LOG_MAX = 150;
 
 /** Log an AI call on the job whose tab made it, and add it to the job's totals. Calls from tabs outside Autopilot aren't logged. */
 export function recordAi(tabId: number, call: AiCall): Promise<void> {
@@ -415,6 +423,20 @@ export function recordAi(tabId: number, call: AiCall): Promise<void> {
     const j = q.find((x) => x.tabId === tabId);
     if (!j) return;
     const u = call.usage;
+    j.aiLog = [
+      ...(j.aiLog ?? []),
+      {
+        at: now(),
+        question: call.what,
+        options: call.options?.slice(0, 60),
+        note: call.note,
+        answer: call.answer,
+        confidence: call.confidence,
+        decision: call.decision,
+        tokens: u ? u.tokensIn + u.tokensOut : undefined,
+        cost: u?.cost,
+      },
+    ].slice(-AI_LOG_MAX);
     if (u) {
       const t = (j.ai ??= { calls: 0, tokensIn: 0, tokensOut: 0, cost: 0 });
       t.calls++;
@@ -424,6 +446,18 @@ export function recordAi(tabId: number, call: AiCall): Promise<void> {
     }
     const spend = u ? ` · ${u.tokensIn + u.tokensOut} tokens${u.cost !== undefined ? ` · $${u.cost.toFixed(5)}` : ''}` : '';
     log(j, `AI: "${call.what.slice(0, 60)}" → ${call.result.slice(0, 100)}${spend}`);
+    await saveQueue(q);
+  });
+}
+
+/** The page reports what it did with an AI answer: attach it to that question's latest log entry. */
+export function aiDecided(tabId: number, question: string, decision: string): Promise<void> {
+  return locked(async () => {
+    const q = await getQueue();
+    const j = q.find((x) => x.tabId === tabId);
+    const entry = j?.aiLog?.filter((e) => e.question === question && !e.decision).at(-1);
+    if (!j || !entry) return;
+    entry.decision = decision;
     await saveQueue(q);
   });
 }

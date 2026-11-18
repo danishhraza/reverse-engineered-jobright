@@ -63,14 +63,17 @@ const CONTROL_SEL = 'input, select, textarea, button, [role="combobox"], [role="
 const SKIP_INPUT_TYPES = new Set(['hidden', 'submit', 'button', 'image', 'reset', 'range', 'color']);
 
 export function stripLabel(s: string): string {
-  return squash(
+  const out = squash(
     s
       .replace(/\(\s*(required|optional)\s*\)/gi, '')
       .replace(/[*✱]/g, '')
       // After a failed Next, labels turn into errors: "City is required", "Address Line 1 is invalid".
-      .replace(/\s+(is|are) (required|mandatory|invalid|missing|not valid)\b.*$/i, '')
+      // Only at the very end: "Micron is required to comply with…" is a question, not an error.
+      .replace(/\s+(is|are) (required|mandatory|invalid|missing|not valid)[.!]?\s*$/i, '')
       .replace(/\s*required\s*$/i, ''),
-  ).slice(0, 400);
+  );
+  // Long legal preambles end with the actual question: keep the start and the end.
+  return out.length > 400 ? `${out.slice(0, 120)} … ${out.slice(-276)}` : out;
 }
 
 /** Text of the elements with these ids, looked up in `ctx`'s own document or shadow root. */
@@ -150,11 +153,28 @@ function labelText(label: HTMLLabelElement): string {
 // Labels that name a button, not the question ("Attach" next to "Resume/CV").
 const GENERIC_LABEL = /^(attach|upload|browse|choose( a)? files?|select( a)? files?|drop .*|add files?|enter manually|or)$/i;
 
+/**
+ * How many separate questions a fieldset / group holds. More than one means it's a section
+ * ("Application questions", "Contact Information"), and its legend is a heading, not the question.
+ */
+function questionCount(group: Element): number {
+  const keys = new Set<unknown>();
+  for (const c of Array.from(group.querySelectorAll<HTMLElement>('input:not([type="hidden"]), select, textarea, [role="combobox"], [role="radio"]'))) {
+    const i = c as HTMLInputElement;
+    const inner = c.parentElement?.closest('fieldset, [role="radiogroup"], [role="group"]');
+    const choice = i.type === 'radio' || i.type === 'checkbox' || c.getAttribute('role') === 'radio';
+    keys.add(choice ? (i.name || (inner && inner !== group ? inner : group)) : c);
+    if (keys.size > 1) return keys.size;
+  }
+  return keys.size;
+}
+
 function labelFor(el: HTMLElement): string {
   const own = ownLabel(el);
   if (own && !GENERIC_LABEL.test(own.trim())) return own;
   // Look outward: a labelled group around the control, or text before that group.
-  const group = el.parentElement?.closest('[aria-labelledby], [role="group"], fieldset');
+  let group = el.parentElement?.closest('[aria-labelledby], [role="group"], fieldset') ?? null;
+  if (group && questionCount(group) > 1) group = null; // a section, not this question's group
   const groupText = group ? textOfIds(group.getAttribute('aria-labelledby'), group) || cleanText(group.querySelector('legend')) : '';
   if (groupText && !GENERIC_LABEL.test(groupText)) return groupText;
   const pre = precedingText(group ?? el.parentElement ?? el);
@@ -188,11 +208,12 @@ function ownLabel(el: HTMLElement): string {
 
 /** Group question text for radios/checkboxes/button groups: fieldset legend, radiogroup label, or preceding text. */
 function groupLabel(container: Element): string {
+  // A fieldset around several questions is a section: its legend is the heading, not this question.
   const fs = container.closest('fieldset');
-  const legend = fs?.querySelector(':scope > legend');
+  const legend = fs && questionCount(fs) <= 1 ? fs.querySelector(':scope > legend') : null;
   if (legend) return cleanText(legend);
   const group = container.closest('[role="radiogroup"], [role="group"]');
-  if (group) {
+  if (group && (group === container || questionCount(group) <= 1)) {
     const t = textOfIds(group.getAttribute('aria-labelledby')) || group.getAttribute('aria-label');
     if (t) return t;
   }
@@ -353,7 +374,8 @@ export function scanFields(opts: ScanOptions = {}): Field[] {
     push({
       kind: 'radio',
       el: first,
-      rawLabel: groupLabel(container ?? first.parentElement ?? first),
+      // A fieldset around several questions is a section: look for the question next to the choices instead.
+      rawLabel: groupLabel(container && questionCount(container) <= 1 ? container : ownBox(visible) ?? first.parentElement ?? first),
       hints: hintsFor(first),
       choices: visible.map((r) => ({ label: choiceLabel(r), el: r })),
     });
@@ -381,7 +403,7 @@ export function scanFields(opts: ScanOptions = {}): Field[] {
       push({
         kind: 'checkboxGroup',
         el: first,
-        rawLabel: groupLabel(first.closest('fieldset, [role="group"]') ?? commonAncestor(visible) ?? first),
+        rawLabel: groupLabel(((g) => (g && questionCount(g) <= 1 ? g : null))(first.closest('fieldset, [role="group"]')) ?? ownBox(visible) ?? first),
         hints: hintsFor(first),
         choices: visible.map((c) => ({ label: choiceLabel(c), el: c })),
       });
@@ -423,6 +445,12 @@ export function scanFields(opts: ScanOptions = {}): Field[] {
 function groupKey(input: HTMLInputElement): string {
   const c = composedClosest(input, isGroup);
   return c ? `grp-${stampId(c)}` : `solo-${stampId(input)}`;
+}
+
+/** The box around just these choices: their shared container, unless that's the form or holds other questions. */
+function ownBox(els: Element[]): Element | null {
+  const anc = commonAncestor(els);
+  return anc && !anc.matches('form, body') && questionCount(anc) <= 1 ? anc : null;
 }
 
 function commonAncestor(els: Element[]): Element | null {
@@ -606,7 +634,8 @@ export function valueBoxText(el: HTMLElement): string {
   for (let i = 0; i < 3 && box.parentElement; i++) {
     const up = box.parentElement;
     if (up.matches('form, body, fieldset')) break;
-    if (up.querySelector('label, legend, h1, h2, h3, h4, h5, h6') || labelIds.some((id) => up.contains(document.getElementById(id)))) break;
+    // The box holding the label too: read it without the label, but go no further out.
+    const hasLabel = !!up.querySelector('label, legend, h1, h2, h3, h4, h5, h6') || labelIds.some((id) => up.contains(document.getElementById(id)));
     const others = Array.from(up.querySelectorAll('input:not([type="hidden"]), select, textarea, [role="combobox"], button[aria-haspopup]')).filter(
       (x) => x !== el && !el.contains(x) && !x.contains(el),
     );
@@ -614,10 +643,12 @@ export function valueBoxText(el: HTMLElement): string {
     box = up;
     const clone = box.cloneNode(true) as HTMLElement;
     clone
-      .querySelectorAll('[role="option"], [role="listbox"], [role="alert"], [aria-live], [class*="error" i], [class*="help" i], [class*="hint" i], [hidden], .rej-ui')
+      .querySelectorAll('label, legend, h1, h2, h3, h4, h5, h6, [role="option"], [role="listbox"], [role="alert"], [aria-live], [class*="error" i], [class*="help" i], [class*="hint" i], [hidden], .rej-ui')
       .forEach((n) => n.remove());
-    const t = squash(clone.textContent ?? '').replace(/[▾▼⌄⌃▲]/g, '').trim();
+    for (const id of labelIds) clone.querySelector(`[id="${id}"]`)?.remove();
+    const t = squash(clone.textContent ?? '').replace(/[▾▼⌄⌃▲*]/g, '').trim();
     if (t && !PLACEHOLDER.test(t) && t.length < 80) found = t;
+    if (hasLabel) break;
   }
   return found;
 }

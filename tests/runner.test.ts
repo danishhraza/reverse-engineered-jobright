@@ -311,6 +311,22 @@ describe('a job, start to finish', () => {
     expect(job().log.find((l) => l.includes('Field of Study'))).toMatch(/1240 tokens · \$0\.00014/);
   });
 
+  it('keeps a full AI log: question, options, answer, and what was done with it', async () => {
+    const tab = await start();
+    await runner.recordAi(tab, {
+      what: 'Have you previously worked in any capacity with Micron?',
+      result: '"No" (0.95)',
+      options: ['Yes', 'No'],
+      answer: 'No',
+      confidence: 0.95,
+      usage: { tokensIn: 1300, tokensOut: 20, cost: 0.0002 },
+    });
+    await runner.aiDecided(tab, 'Have you previously worked in any capacity with Micron?', 'Filled in');
+    expect(job().aiLog).toEqual([
+      expect.objectContaining({ question: 'Have you previously worked in any capacity with Micron?', options: ['Yes', 'No'], answer: 'No', confidence: 0.95, decision: 'Filled in', tokens: 1320, cost: 0.0002 }),
+    ]);
+  });
+
   it('Pause puts the running job back at the front, keeping its tab', async () => {
     const tab = await start();
     await runner.pauseRunner('Paused by you');

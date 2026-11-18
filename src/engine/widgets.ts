@@ -570,3 +570,17 @@ async function fillPlaces(f: Field, d: Desired, overwrite: boolean): Promise<Wid
     ? { ok: true, value: el.value, match: 0.95 }
     : { ok: true, value: el.value, match: 0.7, reason: "Picked an address suggestion but couldn't confirm it — check it" };
 }
+
+/** Open a custom dropdown just to read its options (for the AI), then close it again. */
+export async function peekOptions(f: Field): Promise<string[]> {
+  const trigger = f.el;
+  realClick(trigger);
+  const shown = await waitFor(() => (visibleOptions(trigger).length ? true : null), { timeout: 2500 });
+  if (shown) await waitForSettle(200, 1000);
+  const labels = visibleOptions(trigger)
+    .map((o) => cleanText(o))
+    .filter(Boolean);
+  closeDropdown(trigger);
+  await sleep(150);
+  return Array.from(new Set(labels)).slice(0, 80);
+}

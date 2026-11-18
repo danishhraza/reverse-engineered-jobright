@@ -9,6 +9,25 @@ const $ = <T extends HTMLElement>(id: string) => document.getElementById(id) as 
 const msgEl = $('msg');
 let filter: JobStatus | 'all' | 'done' = 'all';
 const open = new Set<string>(); // jobs with their log expanded
+const openAi = new Set<string>(); // jobs with their AI log expanded
+
+/** Every AI call on a job: what was asked (with the options), what it answered, and what was done with it. */
+function aiTable(j: QueueJob): string {
+  const rows = (j.aiLog ?? [])
+    .map(
+      (e) => `<tr>
+        <td>${new Date(e.at).toTimeString().slice(0, 8)}</td>
+        <td>${esc(e.question)}${e.note ? `<div class="muted">${esc(e.note)}</div>` : ''}${
+          e.options?.length ? `<details><summary class="muted">${e.options.length} options</summary>${esc(e.options.join(' · '))}</details>` : '<div class="muted">free text</div>'
+        }</td>
+        <td>${esc(e.answer ?? '—')}${e.confidence !== undefined ? ` <span class="muted">(${e.confidence})</span>` : ''}</td>
+        <td>${esc(e.decision ?? '—')}</td>
+        <td class="muted">${e.tokens ? `${e.tokens.toLocaleString()} tok` : ''}${e.cost !== undefined ? `<br>$${e.cost.toFixed(5)}` : ''}</td>
+      </tr>`,
+    )
+    .join('');
+  return `<table class="ailog"><thead><tr><th>Time</th><th>Asked</th><th>AI answered</th><th>What was done</th><th>Cost</th></tr></thead><tbody>${rows}</tbody></table>`;
+}
 
 function say(text: string): void {
   msgEl.textContent = text;
@@ -143,6 +162,20 @@ function row(j: QueueJob): HTMLTableRowElement {
     else open.add(j.id);
     render();
   });
+  if (j.aiLog?.length) {
+    const why = tr.querySelector('.why')!;
+    const link = document.createElement('a');
+    link.href = '#';
+    link.textContent = openAi.has(j.id) ? ` hide AI log` : ` AI log (${j.aiLog.length})`;
+    link.addEventListener('click', (e) => {
+      e.preventDefault();
+      if (openAi.has(j.id)) openAi.delete(j.id);
+      else openAi.add(j.id);
+      render();
+    });
+    why.appendChild(link);
+    if (openAi.has(j.id)) why.insertAdjacentHTML('beforeend', aiTable(j));
+  }
   const acts = tr.querySelector('.acts')!;
   for (const [action, text, cls] of ACTIONS[j.status]) {
     const b = document.createElement('button');
@@ -195,6 +228,26 @@ $('exportBtn').addEventListener('click', async () => {
   const a = document.createElement('a');
   a.href = url;
   a.download = `autopilot-${today()}.csv`;
+  a.click();
+  URL.revokeObjectURL(url);
+});
+
+$('exportAiBtn').addEventListener('click', async () => {
+  const q = await getQueue();
+  const cell = (s: unknown) => `"${String(s ?? '').replace(/"/g, '""')}"`;
+  const lines = [['time', 'job', 'company', 'question', 'note', 'options', 'answer', 'confidence', 'decision', 'tokens', 'cost_usd'].join(',')];
+  for (const j of q) {
+    for (const e of j.aiLog ?? []) {
+      lines.push(
+        [new Date(e.at).toISOString(), j.url, j.company, e.question, e.note, (e.options ?? []).join(' | '), e.answer, e.confidence, e.decision, e.tokens, e.cost].map(cell).join(','),
+      );
+    }
+  }
+  if (lines.length === 1) return say('No AI calls logged yet.');
+  const url = URL.createObjectURL(new Blob([lines.join('\n')], { type: 'text/csv' }));
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = `autopilot-ai-log-${today()}.csv`;
   a.click();
   URL.revokeObjectURL(url);
 });

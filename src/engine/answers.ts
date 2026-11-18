@@ -50,7 +50,7 @@ const RULES: Rule[] = [
   { key: 'pronouns', label: /\bpronouns?\b/ },
   { key: 'sponsorship', label: /sponsor/ },
   { key: 'workAuthorized', label: /(legally )?(authori[sz]ed|eligible|permitted) to work|work (authori[sz]ation|permit)|right to work|legal right to/ },
-  { key: 'citizen', label: /\bcitizen(ship)?\b/ },
+  { key: 'citizen', label: /\bcitizen(ship)?\b|\bu\.? ?s\.? worker\b|permanent resident|green card/ },
   { key: 'over18', label: /18 years|over 18|at least 18|age of 18|legal (working )?age/ },
   // About you, not your family ("Do you have relatives currently employed by…" is a different question).
   { key: 'previouslyEmployed', label: /(previously|ever|formerly|currently) (been )?(employed|worked) (by|for|at|with)|former employee|worked (for|at) .* before/, not: /relative|family|friend|spouse|partner|household|know anyone|related to/ },
@@ -207,6 +207,21 @@ function isYesNoQuestion(label: string): boolean {
   return /^(are|is|do|does|have|has|will|would|can|did|were)\b/.test(norm(label)) || /\?$/.test(label.trim());
 }
 
+/**
+ * Does this dropdown want Yes/No? A native select says so with its options; otherwise go by the
+ * question itself — the last sentence, since long legal preambles end with the actual question
+ * ("…Are you in one of the above five groups?").
+ */
+function asksYesNo(field: Field, label: string): boolean {
+  if (field.kind === 'select') {
+    const opts = Array.from((field.el as HTMLSelectElement).options).map((o) => norm(o.textContent ?? ''));
+    if (opts.some((o) => /^yes\b/.test(o)) && opts.some((o) => /^no\b/.test(o))) return true;
+  }
+  const sentences = label.split(/(?<=[.?!])\s+/).filter((s) => s.trim());
+  const last = sentences[sentences.length - 1] ?? label;
+  return /^(are|is|do|does|have|has|will|would|can|did|were)\b/.test(norm(last)) || (sentences.length === 1 && isYesNoQuestion(label));
+}
+
 export function resolve(c: Classification, p: Profile, field: Field): Resolution {
   const per = p.personal;
   const label = field.label;
@@ -324,7 +339,8 @@ export function resolve(c: Classification, p: Profile, field: Field): Resolution
       if (!auth) return { flag: `Asks about ${code} — no work authorization saved for that country` };
       if (c.key === 'sponsorship') return { desired: yes(auth.requiresSponsorship) };
       if (c.key === 'workAuthorized') return { desired: yes(auth.authorized) };
-      if (field.kind === 'text' || field.kind === 'combobox' || (field.kind === 'select' && !isYesNoQuestion(label))) {
+      // "Country of citizenship" wants a country; "Are you a U.S. citizen?" / "…one of the above five groups?" wants Yes/No.
+      if (field.kind === 'text' || ((field.kind === 'combobox' || field.kind === 'select') && !asksYesNo(field, label))) {
         // "Country of citizenship"
         if (!auth.citizen) return { flag: 'Citizenship country not in profile' };
         return t(per.country ?? 'United States', COUNTRY_ALTS[per.country ?? 'United States']);

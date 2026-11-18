@@ -41,10 +41,13 @@ export async function loadSetup(profileId?: string): Promise<FillSetup | { error
 
 function aiFor(profile: Profile): AiAsk {
   const facts = profileFacts(profile);
-  return async (q) => {
+  const ask: AiAsk = async (q) => {
     const job = [document.title, location.hostname].filter(Boolean).join(' — ');
     const r: { answer?: string; confidence?: number; error?: string } | undefined = await chrome.runtime.sendMessage({ type: 'aiAsk', q, facts, job });
     if (r?.error) throw new Error(r.error);
     return r?.answer ? { answer: r.answer, confidence: r.confidence ?? 0 } : null;
   };
+  // What the fill did with the answer, for the job's AI log.
+  ask.decided = (question, decision) => void chrome.runtime.sendMessage({ type: 'aiDecided', question, decision }).catch(() => {});
+  return ask;
 }

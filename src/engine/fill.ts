@@ -6,7 +6,7 @@ import { cleanText, isVisible, realClick, sleep, squash, waitFor, waitForSettle 
 import { currentValue, isPressed, scanFields, stampId, type Field } from './fields';
 import { fillEntryField } from './entries';
 import { entryFor, fillSections } from './sections';
-import { fillField, MIN_MATCH } from './widgets';
+import { fillField, MIN_MATCH, peekOptions } from './widgets';
 import { isPlaceholderOption, norm, type Desired } from './match';
 
 // The page-level fill loop: upload the resume first (sites re-parse it and
@@ -45,7 +45,10 @@ export interface AiAnswer {
   confidence: number;
 }
 
-export type AiAsk = (q: AiQuestion) => Promise<AiAnswer | null>;
+export type AiAsk = ((q: AiQuestion) => Promise<AiAnswer | null>) & {
+  /** What was done with the AI's answer ("Filled", "Only suggested…"), for the job's AI log. */
+  decided?: (question: string, decision: string) => void;
+};
 
 /** Below this, fill nothing and ask the human. Between this and AUTO_OK, fill but ask the human to check. */
 const ASK_HUMAN = 0.55;
@@ -250,23 +253,34 @@ const AI_MIN_CONFIDENCE = 0.7;
 
 async function aiFill(f: Field, opts: PageFillOptions, note?: string): Promise<FieldReport | null> {
   if (!opts.ai || !f.label || f.kind === 'file' || f.kind === 'checkbox' || f.inputType === 'password') return null;
-  const options = optionsOf(f);
+  let options = optionsOf(f);
+  // A custom dropdown only shows its options when open: peek, so the AI picks one of them.
+  if (!options.length && f.kind === 'combobox') options = await peekOptions(f);
   status(`Asking the AI: "${f.label.length > 60 ? `${f.label.slice(0, 57)}…` : f.label}"…`);
+  const ai = opts.ai;
+  const decided = (r: FieldReport | null, decision: string) => {
+    ai.decided?.(f.label, decision);
+    return r;
+  };
   let a: AiAnswer | null = null;
   try {
-    a = await opts.ai({ question: f.label, kind: f.kind, options, required: f.required, note });
+    a = await ai({ question: f.label, kind: f.kind, options, required: f.required, note });
   } catch (e) {
     rethrowCancel(e);
-    return row(f, 'flagged', 0, 'ai', `AI error: ${String((e as Error)?.message ?? e).slice(0, 120)}`);
+    const msg = String((e as Error)?.message ?? e).slice(0, 120);
+    return decided(row(f, 'flagged', 0, 'ai', `AI error: ${msg}`), `Error — left for you (${msg})`);
   }
   checkCancel();
-  if (!a || !a.answer) return null;
-  if (a.confidence < AI_MIN_CONFIDENCE) return row(f, 'flagged', a.confidence, 'ai', `AI isn't sure — it suggests "${a.answer.slice(0, 80)}"`);
+  if (!a || !a.answer) return decided(null, 'No usable answer — left for you');
+  if (a.confidence < AI_MIN_CONFIDENCE) {
+    return decided(row(f, 'flagged', a.confidence, 'ai', `AI isn't sure — it suggests "${a.answer.slice(0, 80)}"`), `Not sure enough (below ${AI_MIN_CONFIDENCE}) — only suggested to you`);
+  }
   if (options.length && !options.some((o) => norm(o) === norm(a!.answer))) {
-    return row(f, 'flagged', a.confidence, 'ai', `AI answered "${a.answer.slice(0, 80)}", which isn't one of the options`);
+    return decided(row(f, 'flagged', a.confidence, 'ai', `AI answered "${a.answer.slice(0, 80)}", which isn't one of the options`), 'Rejected — not one of the options; left for you');
   }
   const yesNo = /^(yes|no)$/i.test(a.answer) && !options.length ? { bool: /^yes$/i.test(a.answer) } : {};
-  return applyDesired(f, { text: a.answer, ...yesNo }, Math.min(0.95, a.confidence), 'ai', opts, 'Answered by AI — check it');
+  const r = await applyDesired(f, { text: a.answer, ...yesNo }, Math.min(0.95, a.confidence), 'ai', opts, 'Answered by AI — check it');
+  return decided(r, r.status === 'filled' ? 'Filled in' : `Tried to fill it, but: ${r.reason ?? r.status} — left for you`);
 }
 
 // ---------- Resume upload ----------
