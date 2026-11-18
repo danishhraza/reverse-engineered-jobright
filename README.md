@@ -38,6 +38,8 @@ npm run build
 
 After changing code: `npm run build` (or `npm run watch`), then click the reload icon on the extension card and reload the job page.
 
+**Your own profile, preloaded.** If `profiles/<you>.json` exists, the build bundles it, the resumes in `profiles/resumes/` (named as each profile's `resumeFileName`) and the email in `profiles/account.json` into `dist/seed/`, and the extension imports them on install and on every reload when they've changed. Steps 2–3 then happen by themselves. All of these files are gitignored; build with `SEED=0` for a copy without them.
+
 ## Your data
 
 `profiles/*` (except `example.json`) and `*.pdf` are gitignored, so your real profile never lands in the repo. Use **Export JSON** in Options for a backup. The job-site login is stored separately and isn't included in the export.

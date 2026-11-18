@@ -1,8 +1,9 @@
 import type { FillMode, FillReport, PendingLearn } from './types';
 import { getPending, getSettings, setPending } from './profile/storage';
+import { importSeed } from './profile/seed';
 import type { AiQuestion } from './engine/fill';
 import { norm } from './engine/match';
-import { askModel } from './llm/openrouter';
+import { askGuide, askModel } from './llm/openrouter';
 import { getAiAnswers, getLlm, saveAiAnswer } from './queue/store';
 import { onAlarm, onPageLoaded, onStepResult, onTabCreated, onTabRemoved, pauseRunner, queueAction, recover, startRunner, type QueueAction } from './queue/runner';
 
@@ -11,9 +12,11 @@ import { onAlarm, onPageLoaded, onStepResult, onTabCreated, onTabRemoved, pauseR
 
 chrome.runtime.onInstalled.addListener(() => {
   chrome.sidePanel.setPanelBehavior({ openPanelOnActionClick: true }).catch(() => {});
+  void importSeed();
 });
 chrome.runtime.onStartup.addListener(() => {
   chrome.sidePanel.setPanelBehavior({ openPanelOnActionClick: true }).catch(() => {});
+  void importSeed();
   void recover();
 });
 
@@ -204,6 +207,15 @@ chrome.runtime.onMessage.addListener((msg, sender, reply) => {
   }
   if (msg.type === 'aiAsk') {
     answerQuestion(msg.q, msg.facts, msg.job).then(reply);
+    return true;
+  }
+  if (msg.type === 'aiGuide') {
+    (async () => {
+      const llm = await getLlm();
+      if (!llm.enabled || !llm.apiKey) return reply({ error: 'AI answers are off (no OpenRouter key)' });
+      const a = await askGuide(llm, msg.page);
+      reply(a ?? { error: 'The model gave no usable answer' });
+    })().catch((e) => reply({ error: (e as Error).message }));
     return true;
   }
   if (msg.type === 'llmTest') {

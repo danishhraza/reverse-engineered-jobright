@@ -87,6 +87,18 @@ describe('create account', () => {
   });
 });
 
+describe('pop-ups', () => {
+  it('presses "Consent & Continue" on a privacy notice, not "Decline & Close"', async () => {
+    document.body.innerHTML = `<h1>Analyst</h1><button>Apply</button>
+      <div role="dialog" aria-modal="true"><h2>Privacy Policy</h2><button id="ok">Consent &amp; Continue</button><button id="no">Decline &amp; Close</button></div>`;
+    const pressed: string[] = [];
+    for (const id of ['ok', 'no']) document.getElementById(id)!.addEventListener('click', () => pressed.push(id));
+    const out = await step(req, () => {});
+    expect(pressed).toEqual(['ok']);
+    expect(out).toMatchObject({ kind: 'acted', action: expect.stringMatching(/Consent & Continue/) });
+  });
+});
+
 describe('Apply buttons', () => {
   it('opens a plain Apply link in the job tab instead of clicking it', async () => {
     document.body.innerHTML = '<h1>Analyst</h1><a href="https://acme.com/careers/1">Apply now</a>';

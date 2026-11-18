@@ -6,6 +6,7 @@ import { isRunning, run } from '../engine/run';
 import type { FillReport } from '../types';
 import type { Probe, StepOutcome } from '../queue/types';
 import { loadSetup } from './context';
+import { candidates, findBlocker, looksLoading, markTried } from './blockers';
 
 // Autopilot, page side. The background asks every frame what it sees
 // (probe), picks the frame that matters, and asks it to take one step: click
@@ -55,6 +56,8 @@ export function probe(): Probe {
   const text = pageText();
   const sig = `${location.href}|${squash(cleanText(document.querySelector('h1, h2'))).slice(0, 80)}|${document.querySelectorAll('input, select, textarea').length}`;
   if (captchaVisible(text)) return { kind: 'captcha', sig };
+  const blocker = findBlocker();
+  if (blocker) return { kind: 'blocker', sig: `${sig}|${blocker.label}`, detail: `${blocker.kind === 'cookie' ? 'Cookie banner' : 'Pop-up'}: "${blocker.label}"` };
   const pw = passwordBox();
   const formy = !pw && looksLikeForm() && applicationScore() >= 2;
   if (!pw && !formy && VERIFY.test(text)) return { kind: 'verify', sig, detail: squash(VERIFY.exec(text)?.[0] ?? '') };
@@ -66,6 +69,7 @@ export function probe(): Probe {
   if (CLOSED.test(text)) return { kind: 'closed', sig, detail: squash(CLOSED.exec(text)?.[0] ?? '') };
   // A form without the usual fields (a short custom form): still worth filling.
   if (looksLikeForm()) return { kind: 'form', sig };
+  if (looksLoading(text)) return { kind: 'loading', sig };
   return { kind: 'none', sig };
 }
 
@@ -74,16 +78,38 @@ export interface StepRequest {
   autoSubmit: boolean;
   /** We already created an account on this site. */
   accountKnown: boolean;
+  /** 'guide': the rules are stuck here; ask the AI which button moves the application on. */
+  mode?: 'guide';
 }
 
 export async function step(req: StepRequest, onReport: (r: FillReport) => void): Promise<StepOutcome> {
   if (isRunning()) return { kind: 'acted', action: 'A fill is already running here — waiting' };
   await waitForSettle(400, 4000);
+  if (req.mode === 'guide') return guideStep();
   const p = probe();
+  if (p.kind === 'blocker') return blockerStep();
   if (p.kind === 'account') return accountStep(req, onReport);
   if (p.kind === 'form') return formStep(req, onReport);
   if (p.kind === 'apply') return applyStep();
   return { kind: 'nothing' };
+}
+
+/** Click `el`; an ordinary link is opened by the background instead (script clicks can't open new tabs). */
+function press(el: HTMLElement, what: string): StepOutcome {
+  const a = el.closest('a');
+  if (a?.href && /^https?:/.test(a.href) && (a.target === '_blank' || !a.getAttribute('onclick'))) return { kind: 'acted', action: `Opened "${what}"`, navigate: a.href };
+  realClick(el);
+  return { kind: 'acted', action: `Clicked "${what}"` };
+}
+
+// ---------- Pop-ups and banners ----------
+
+function blockerStep(): StepOutcome {
+  const b = findBlocker();
+  if (!b) return { kind: 'nothing' };
+  markTried(b.button);
+  realClick(b.button);
+  return { kind: 'acted', action: `${b.kind === 'cookie' ? 'Cookie banner' : 'Pop-up'}: pressed "${b.label}"` };
 }
 
 // ---------- Apply button ----------
@@ -92,14 +118,24 @@ function applyStep(): StepOutcome {
   const btn = applyButton();
   if (!btn) return { kind: 'nothing' };
   const text = buttonText(btn);
-  const host = location.hostname;
-  if (/linkedin\.com$/.test(host) && /easy apply/i.test(text)) return { kind: 'skipped', reason: "LinkedIn Easy Apply isn't automated (against LinkedIn's terms)" };
-  if (/(^|\.)indeed\.com$/.test(host) && !/company/i.test(text)) return { kind: 'skipped', reason: "Indeed's own Apply isn't automated — only \"Apply on company site\"" };
-  // A plain link: let the background open it in the job's tab (a script click can't open new tabs).
-  const a = btn.closest('a');
-  if (a?.href && /^https?:/.test(a.href)) return { kind: 'acted', action: `Opened "${text}"`, navigate: a.href };
-  realClick(btn);
-  return { kind: 'acted', action: `Clicked "${text}"` };
+  if (/linkedin\.com$/.test(location.hostname) && /easy apply/i.test(text)) return { kind: 'skipped', reason: "LinkedIn Easy Apply isn't automated (against LinkedIn's terms)" };
+  return press(btn, text);
+}
+
+// ---------- The AI picks the button ----------
+
+async function guideStep(): Promise<StepOutcome> {
+  const { els, list } = candidates();
+  if (!list.length) return { kind: 'needs-you', reason: 'Nothing on this page to click — check it, then press Continue' };
+  const text = squash(pageText()).slice(0, 2500);
+  const r: { choice?: number; confidence?: number; reason?: string; error?: string } | undefined = await chrome.runtime
+    .sendMessage({ type: 'aiGuide', page: { url: location.href, title: document.title, text, buttons: list } })
+    .catch((e: Error) => ({ error: e.message }));
+  if (r?.error) return { kind: 'needs-you', reason: `Stuck here, and the AI couldn't help: ${r.error}` };
+  const el = r?.choice !== undefined && r.choice >= 0 ? els[r.choice] : undefined;
+  if (!el || (r?.confidence ?? 0) < 0.6) return { kind: 'needs-you', reason: `Stuck here. AI: ${r?.reason ?? 'no good option'}` };
+  const out = press(el, list[r!.choice!].text);
+  return out.kind === 'acted' ? { ...out, action: `AI: ${out.action} — ${r?.reason ?? ''}` } : out;
 }
 
 // ---------- Sign in / create account ----------
@@ -196,7 +232,12 @@ async function formStep(req: StepRequest, onReport: (r: FillReport) => void): Pr
   });
   const flagged = report.fields.filter((f) => f.status === 'flagged');
   const blocking = flagged.filter((f) => f.required);
-  const names = (rows: typeof flagged) => rows.slice(0, 3).map((f) => `"${f.label.slice(0, 50)}"`).join(', ') + (rows.length > 3 ? ` +${rows.length - 3} more` : '');
+  // With the reason, so the queue says *why* ("First Name" (value didn't stick)).
+  const names = (rows: typeof flagged) =>
+    rows
+      .slice(0, 3)
+      .map((f) => `"${f.label.slice(0, 50)}"${f.reason ? ` (${f.reason.slice(0, 60)})` : ''}`)
+      .join(', ') + (rows.length > 3 ? ` +${rows.length - 3} more` : '');
   switch (report.stop) {
     case 'cancelled':
       return { kind: 'failed', reason: 'Stopped' };

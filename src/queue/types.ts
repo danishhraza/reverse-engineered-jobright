@@ -98,15 +98,17 @@ export interface RunnerState {
   seen: string[];
   /** A step sent to a page and not answered yet; no new step starts until it is (or its frame reloads). */
   inFlight?: { step: number; frameId: number; since: number };
-  /** Probes in a row that found nothing (page still loading?). */
-  nothing?: number;
+  /** When probes started finding nothing / a loading page (waiting for a redirect). */
+  waitSince?: number;
+  /** Page fingerprints the AI was already asked about (once each). */
+  guided?: string[];
   /** yyyy-mm-dd -> jobs started that day. */
   startedByDay: Record<string, number>;
 }
 
 export const INITIAL_RUNNER: RunnerState = { running: false, step: 0, jobSteps: 0, seen: [], startedByDay: {} };
 
-export type ProbeKind = 'captcha' | 'verify' | 'account' | 'form' | 'applied' | 'apply' | 'closed' | 'none';
+export type ProbeKind = 'captcha' | 'verify' | 'blocker' | 'account' | 'form' | 'applied' | 'apply' | 'closed' | 'loading' | 'none';
 
 /** What a frame sees, without changing anything (content script -> background). */
 export interface Probe {
@@ -118,7 +120,7 @@ export interface Probe {
 }
 
 /** Most important first: the background acts on the frame whose probe ranks highest. */
-export const PROBE_RANK: ProbeKind[] = ['captcha', 'verify', 'account', 'form', 'applied', 'apply', 'closed', 'none'];
+export const PROBE_RANK: ProbeKind[] = ['captcha', 'verify', 'blocker', 'account', 'form', 'applied', 'apply', 'closed', 'loading', 'none'];
 
 /** What one step on a page found or did (content script -> background). */
 export type StepOutcome =

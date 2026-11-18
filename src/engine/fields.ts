@@ -47,7 +47,14 @@ export function stampId(el: HTMLElement): string {
 }
 
 export function findById(id: string): HTMLElement | null {
-  return document.querySelector<HTMLElement>(`[${ID_ATTR}="${id}"]`);
+  const sel = `[${ID_ATTR}="${id}"]`;
+  const light = document.querySelector<HTMLElement>(sel);
+  if (light) return light;
+  for (const r of withShadowRoots(document).slice(1)) {
+    const el = r.querySelector<HTMLElement>(sel);
+    if (el) return el;
+  }
+  return null;
 }
 
 const CONTROL_SEL = 'input, select, textarea, button, [role="combobox"], [role="listbox"], [contenteditable="true"]';
@@ -63,13 +70,34 @@ export function stripLabel(s: string): string {
   ).slice(0, 400);
 }
 
-function textOfIds(ids: string | null): string {
+/** Text of the elements with these ids, looked up in `ctx`'s own document or shadow root. */
+function textOfIds(ids: string | null, ctx?: Element): string {
   if (!ids) return '';
+  const root = (ctx?.getRootNode() ?? document) as Document | ShadowRoot;
   return ids
     .split(/\s+/)
-    .map((id) => cleanText(document.getElementById(id)))
+    .map((id) => cleanText(root.getElementById?.(id) ?? document.getElementById(id)))
     .filter(Boolean)
     .join(' ');
+}
+
+/** `root` plus every open shadow root inside it (web-component forms: ADP, Salesforce…). */
+function withShadowRoots(root: ParentNode): ParentNode[] {
+  const out: ParentNode[] = [root];
+  for (let i = 0; i < out.length; i++) {
+    for (const el of Array.from(out[i].querySelectorAll('*'))) if (el.shadowRoot) out.push(el.shadowRoot);
+  }
+  return out;
+}
+
+function deep<T extends Element>(roots: ParentNode[], sel: string): T[] {
+  return roots.flatMap((r) => Array.from(r.querySelectorAll<T>(sel)));
+}
+
+/** The element hosting `el`'s shadow root, if it lives in one. */
+function shadowHost(el: Element): HTMLElement | null {
+  const r = el.getRootNode();
+  return r instanceof ShadowRoot ? (r.host as HTMLElement) : null;
 }
 
 /** The nearest preceding text block inside `container` that comes before `el`. */
@@ -109,9 +137,14 @@ function labelFor(el: HTMLElement): string {
   if (own && !GENERIC_LABEL.test(own.trim())) return own;
   // Look outward: a labelled group around the control, or text before that group.
   const group = el.parentElement?.closest('[aria-labelledby], [role="group"], fieldset');
-  const groupText = group ? textOfIds(group.getAttribute('aria-labelledby')) || cleanText(group.querySelector('legend')) : '';
+  const groupText = group ? textOfIds(group.getAttribute('aria-labelledby'), group) || cleanText(group.querySelector('legend')) : '';
   if (groupText && !GENERIC_LABEL.test(groupText)) return groupText;
-  return precedingText(group ?? el.parentElement ?? el) || own;
+  const pre = precedingText(group ?? el.parentElement ?? el);
+  if (pre) return pre;
+  // Inside a web component with no label of its own: the question sits next to the component.
+  const host = shadowHost(el);
+  if (host && !own) return labelFor(host);
+  return own;
 }
 
 function ownLabel(el: HTMLElement): string {
@@ -121,7 +154,7 @@ function ownLabel(el: HTMLElement): string {
     const l = wd.querySelector('label, legend');
     if (l) return cleanText(l);
   }
-  const by = textOfIds(el.getAttribute('aria-labelledby'));
+  const by = textOfIds(el.getAttribute('aria-labelledby'), el);
   if (by) return by;
   const labels = (el as HTMLInputElement).labels;
   if (labels && labels.length) {
@@ -207,6 +240,7 @@ export function scanFields(opts: ScanOptions = {}): Field[] {
   const exclude = opts.exclude ?? '.rej-ui';
   const fields: Field[] = [];
   const seen = new Set<Element>();
+  const roots = withShadowRoots(root);
 
   const push = (f: Omit<Field, 'id' | 'required' | 'label'> & { rawLabel: string }) => {
     const { rawLabel, ...rest } = f;
@@ -214,7 +248,7 @@ export function scanFields(opts: ScanOptions = {}): Field[] {
   };
 
   // Custom comboboxes first so their inner inputs aren't double-counted as text fields.
-  for (const el of Array.from(root.querySelectorAll<HTMLElement>('[role="combobox"], [aria-haspopup="listbox"], input[aria-autocomplete]'))) {
+  for (const el of deep<HTMLElement>(roots, '[role="combobox"], [aria-haspopup="listbox"], input[aria-autocomplete]')) {
     if (el.closest(exclude) || seen.has(el) || !isVisible(el)) continue;
     if (!isCombobox(el)) continue;
     if ((el as HTMLInputElement).disabled) continue;
@@ -233,11 +267,11 @@ export function scanFields(opts: ScanOptions = {}): Field[] {
   const radiosByGroup = new Map<string, HTMLInputElement[]>();
   const checkboxesByGroup = new Map<string, HTMLInputElement[]>();
   const checkboxNames = new Map<string, number>();
-  for (const c of Array.from(root.querySelectorAll<HTMLInputElement>('input[type="checkbox"][name]'))) {
+  for (const c of deep<HTMLInputElement>(roots, 'input[type="checkbox"][name]')) {
     checkboxNames.set(c.name, (checkboxNames.get(c.name) ?? 0) + 1);
   }
 
-  for (const el of Array.from(root.querySelectorAll<HTMLElement>('input, select, textarea'))) {
+  for (const el of deep<HTMLElement>(roots, 'input, select, textarea')) {
     if (el.closest(exclude) || seen.has(el)) continue;
     const input = el as HTMLInputElement;
     const type = (input.type || '').toLowerCase();
@@ -273,7 +307,7 @@ export function scanFields(opts: ScanOptions = {}): Field[] {
   }
 
   // Rich-text editors (Quill, Draft.js, ProseMirror, CKEditor) used for descriptions.
-  for (const el of Array.from(root.querySelectorAll<HTMLElement>('[contenteditable="true"], [contenteditable=""], [contenteditable="plaintext-only"]'))) {
+  for (const el of deep<HTMLElement>(roots, '[contenteditable="true"], [contenteditable=""], [contenteditable="plaintext-only"]')) {
     if (el.closest(exclude) || seen.has(el) || !isVisible(el)) continue;
     if (el.parentElement?.closest('[contenteditable="true"], [contenteditable=""], [contenteditable="plaintext-only"]')) continue;
     seen.add(el);

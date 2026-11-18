@@ -77,7 +77,26 @@ async function fillText(f: Field, value: string, overwrite: boolean): Promise<Wi
   el.dispatchEvent(new Event('blur', { bubbles: true }));
   el.dispatchEvent(new FocusEvent('focusout', { bubbles: true }));
   await sleep(30);
-  const now = el.value;
+  let now = el.value;
+  if (now !== value && !(digits(value).length >= 7 && digits(now).endsWith(digits(value).slice(-7)))) {
+    // Some forms (ADP, web components) throw away values set from script and keep only real
+    // edits: let the browser insert the text itself, which fires the same events as typing.
+    el.focus({ preventScroll: true });
+    el.select?.();
+    let inserted = false;
+    try {
+      inserted = document.execCommand('insertText', false, value);
+    } catch {
+      // execCommand unavailable (tests)
+    }
+    if (inserted) {
+      el.dispatchEvent(new Event('change', { bubbles: true }));
+      el.dispatchEvent(new Event('blur', { bubbles: true }));
+      el.dispatchEvent(new FocusEvent('focusout', { bubbles: true }));
+      await sleep(50);
+      now = el.value;
+    }
+  }
   if (now === value) return { ok: true, value, match: 1 };
   // Input masks (phone) reformat the value; accept if the digits survived.
   if (digits(value).length >= 7 && digits(now).endsWith(digits(value).slice(-7))) return { ok: true, value: now, match: 0.95 };

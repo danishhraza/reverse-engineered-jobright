@@ -13,7 +13,9 @@ import { PROBE_RANK, type JobStatus, type Probe, type QueueJob, type RunnerState
 
 const MAX_STEPS = 40;
 const STUCK_REPEATS = 3;
-const NOTHING_RETRIES = 4;
+/** How long to keep checking a page with nothing to do (slow to render), and a "redirecting / please wait" page. */
+const NOTHING_WAIT_MS = 20000;
+const LOADING_WAIT_MS = 45000;
 const ALARM_NEXT = 'autopilot-next';
 const ALARM_TIMEOUT = 'autopilot-timeout';
 const ALARM_STEP = 'autopilot-step';
@@ -172,7 +174,8 @@ function nextJob(): Promise<void> {
     st.currentJobId = job.id;
     st.jobSteps = 0;
     st.seen = [];
-    st.nothing = 0;
+    st.waitSince = undefined;
+    st.guided = [];
     st.inFlight = undefined;
     st.step++;
     await saveRunner(st);
@@ -250,30 +253,53 @@ export function doStep(): Promise<void> {
         return finish(st, job, 'applied', best!.probe.detail ? `Confirmation: "${best!.probe.detail}"` : 'Confirmation page');
       case 'closed':
         return finish(st, job, 'skipped', `Posting closed: "${best!.probe.detail ?? ''}"`);
-      case 'none':
-        st.nothing = (st.nothing ?? 0) + 1;
-        if (st.nothing < NOTHING_RETRIES) {
-          st.jobSteps--; // waiting for a slow page isn't progress
-          await saveRunner(st);
-          return void scheduleStep(4000);
-        }
-        return finish(st, job, 'needs-you', "Couldn't find an Apply button or application form here");
     }
-    st.nothing = 0;
-    if (repeats >= STUCK_REPEATS) return finish(st, job, 'needs-you', `Stuck: same page ${repeats} times (${kind}) — check it, then press Continue`);
+    let mode: 'guide' | undefined;
+    if (kind === 'none' || kind === 'loading') {
+      // Redirect / "please wait" pages (Indeed -> company site) move on by themselves: keep looking for a while.
+      st.waitSince ??= now();
+      if (now() - st.waitSince < (kind === 'loading' ? LOADING_WAIT_MS : NOTHING_WAIT_MS)) {
+        st.jobSteps--; // waiting isn't progress
+        await saveRunner(st);
+        return void scheduleStep(3000);
+      }
+    } else {
+      st.waitSince = undefined;
+    }
+    if (kind === 'none' || kind === 'loading' || repeats >= STUCK_REPEATS) {
+      // The rules don't know what to do here: ask the AI which button moves things on, once per page.
+      if ((st.guided ?? []).includes(fp)) {
+        return finish(st, job, 'needs-you', kind === 'none' || kind === 'loading' ? "Couldn't find an Apply button or application form here" : `Stuck: same page ${repeats} times (${kind}) — check it, then press Continue`);
+      }
+      st.guided = [...(st.guided ?? []), fp].slice(-12);
+      mode = 'guide';
+    }
 
+    // The AI looks at the top page unless a frame had something to show.
+    const frameId = mode === 'guide' && (kind === 'none' || kind === 'loading') ? 0 : (best?.frameId ?? 0);
     st.step++;
-    st.inFlight = { step: st.step, frameId: best!.frameId, since: now() };
+    st.inFlight = { step: st.step, frameId, since: now() };
     await saveRunner(st);
     const ap = await getAutopilot();
     const host = new URL(tab.url ?? job.url).hostname;
-    log(job, kind === 'apply' ? `Apply button: ${best!.probe.detail ?? ''}` : kind === 'account' ? 'Sign-in / sign-up page' : 'Filling the application');
+    log(
+      job,
+      mode === 'guide'
+        ? 'Not sure what to press here — asking the AI'
+        : kind === 'apply'
+          ? `Apply button: ${best!.probe.detail ?? ''}`
+          : kind === 'blocker'
+            ? (best!.probe.detail ?? 'Pop-up')
+            : kind === 'account'
+              ? 'Sign-in / sign-up page'
+              : 'Filling the application',
+    );
     await saveQueue(q);
     const sent = await chrome.tabs
       .sendMessage(
         tab.id!,
-        { type: 'autoStep', step: st.step, profileId: job.profile, autoSubmit: ap.autoSubmit, accountKnown: await accountCreatedOn(host) },
-        { frameId: best!.frameId },
+        { type: 'autoStep', step: st.step, profileId: job.profile, autoSubmit: ap.autoSubmit, accountKnown: await accountCreatedOn(host), mode },
+        { frameId },
       )
       .catch(() => null);
     if (!sent) {

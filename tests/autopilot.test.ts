@@ -133,6 +133,31 @@ describe('multi-step forms without an adapter (autopilot)', () => {
   }, 40000);
 });
 
+describe('fields inside web components (shadow DOM)', () => {
+  it('finds and fills an input inside a custom element, labelled by the text next to it', async () => {
+    document.body.innerHTML = `<form><div class="f"><span>First Name*</span><x-input id="fn"></x-input></div><div class="f"><span>Last Name*</span><x-input id="ln"></x-input></div></form>`;
+    for (const id of ['fn', 'ln']) {
+      const sr = document.getElementById(id)!.attachShadow({ mode: 'open' });
+      sr.innerHTML = '<input type="text">';
+    }
+    const report = await run({ ...base, profile: exampleProfile('swe'), autoAdvance: false });
+    const inner = (id: string) => (document.getElementById(id)!.shadowRoot!.querySelector('input') as HTMLInputElement).value;
+    expect(inner('fn')).toBe('Alex');
+    expect(inner('ln')).toBe('Example');
+    expect(report.fields.find((f) => f.label === 'First Name')?.status).toBe('filled');
+  }, 30000);
+});
+
+describe('AI button picker', () => {
+  it('numbers the buttons and reads a valid choice back', async () => {
+    const { buildGuidePrompt, parseGuide } = await import('../src/llm/openrouter');
+    const prompt = buildGuidePrompt({ url: 'https://x.com', title: 'Job', text: 'Start your application', buttons: [{ i: 0, text: 'Apply Manually', kind: 'button', inDialog: false }] });
+    expect(prompt).toContain('[0] button: "Apply Manually"');
+    expect(parseGuide('{"choice": 0, "confidence": 0.9, "reason": "manual"}', 1)).toEqual({ choice: 0, confidence: 0.9, reason: 'manual' });
+    expect(parseGuide('{"choice": 5, "confidence": 0.9, "reason": ""}', 1)).toBeNull();
+  });
+});
+
 describe('what a page is (probe)', () => {
   const kind = (html: string) => {
     document.body.innerHTML = html;
@@ -142,11 +167,34 @@ describe('what a page is (probe)', () => {
   it('job posting with an Apply button', () => {
     expect(kind('<h1>Analyst</h1><p>Great job.</p><a href="https://x.com/apply">Apply now</a>')).toBe('apply');
   });
-  it('prefers "Apply on company site" and skips "Apply with LinkedIn"', () => {
-    document.body.innerHTML = '<button>Apply with LinkedIn</button><a href="/x">Apply on company site</a>';
+  it('ranks Apply buttons: manual > company site > plain > resume parser > apply-with-another-site', () => {
+    document.body.innerHTML = '<button>Apply with Indeed</button><a href="/x">Apply on company site</a>';
     expect(applyButton()?.textContent).toBe('Apply on company site');
-    document.body.innerHTML = '<button>Apply with LinkedIn</button>';
-    expect(applyButton()).toBeNull();
+    document.body.innerHTML = '<button>Apply with Indeed</button>';
+    expect(applyButton()?.textContent).toBe('Apply with Indeed');
+    // Unum-style "Start Your Application" chooser.
+    document.body.innerHTML = '<h2>Start Your Application</h2><button>Autofill with Resume</button><button>Apply Manually</button><button>Use My Last Application</button>';
+    expect(applyButton()?.textContent).toBe('Apply Manually');
+  });
+  it('a privacy pop-up in front of the page (ADP "Consent & Continue")', () => {
+    expect(
+      kind(`<h1>SAP MM Business Process Analyst</h1><button>Apply</button>
+        <div role="dialog" aria-modal="true"><h2>Privacy Policy</h2><p>Certain jurisdictions require notice…</p>
+        <button>Consent &amp; Continue</button><button>Decline &amp; Close</button></div>`),
+    ).toBe('blocker');
+    expect(probe().detail).toMatch(/Consent & Continue/);
+  });
+  it('cookie banners: rejects optional cookies rather than accepting', () => {
+    document.body.innerHTML = `<button>Apply</button><div id="onetrust-banner-sdk"><p>We use cookies to improve your experience.</p><button>Accept All Cookies</button><button>Reject All</button></div>`;
+    expect(probe()).toMatchObject({ kind: 'blocker', detail: 'Cookie banner: "Reject All"' });
+  });
+  it('a form inside a pop-up is the form, not something to dismiss', () => {
+    expect(
+      kind(`<div role="dialog"><label for="a">First Name</label><input id="a"><label for="b">Last Name</label><input id="b"><label for="c">Email</label><input id="c"><button>Continue</button></div>`),
+    ).toBe('form');
+  });
+  it('a redirect / loading page', () => {
+    expect(kind('<div class="spinner"></div><p>Redirecting you to the company website…</p>')).toBe('loading');
   });
   it('sign-in / sign-up page', () => {
     expect(kind('<form><label for="e">Email</label><input id="e"><label for="p">Password</label><input id="p" type="password"><button>Sign In</button></form>')).toBe('account');

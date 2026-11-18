@@ -77,7 +77,7 @@ beforeEach(async () => {
   probes.clear();
   sentSteps.length = 0;
   page = (tabId, msg) => (msg.type === 'autoProbe' ? (probes.get(tabId) ?? { kind: 'none', sig: '' }) : msg.type === 'autoStep' ? { ok: true } : null);
-  vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+  vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'Date'] });
   await runner.queueAction({ action: 'add', jobs: [{ url: 'https://jobs.example.com/1', company: 'Acme' }, { url: 'https://jobs.example.com/2?utm_source=x', company: 'Globex' }] });
 });
 
@@ -157,21 +157,41 @@ describe('a job, start to finish', () => {
     expect(Object.values(state().startedByDay)[0]).toBe(2);
   });
 
-  it('stops on a page that keeps coming back (stuck)', async () => {
+  it('on a page that keeps coming back, asks the AI once, then hands it to you', async () => {
     const tab = await start();
     setPage(tab, 'apply', 'Apply');
     for (let i = 0; i < 3; i++) {
       await runner.doStep();
-      if (job().status !== 'running') break;
       await result({ kind: 'acted', action: 'Clicked "Apply"' });
     }
+    // Third time on the same page: the AI gets a go instead of the same click again.
+    expect(sentSteps.at(-1)!.msg.mode).toBe('guide');
+    await runner.doStep();
     expect(job()).toMatchObject({ status: 'needs-you', reason: expect.stringMatching(/Stuck/) });
   });
 
-  it('a page that never shows a form or Apply button goes to you after a few tries', async () => {
+  it('waits out a redirect page before deciding anything', async () => {
+    const tab = await start();
+    setPage(tab, 'loading');
+    await runner.doStep();
+    vi.setSystemTime(Date.now() + 30000);
+    await runner.doStep();
+    expect(sentSteps).toHaveLength(0); // still within the 45 s for loading pages
+    setPage(tab, 'apply', 'Apply on company site');
+    await runner.doStep();
+    expect(sentSteps.at(-1)!.msg.mode).toBeUndefined();
+  });
+
+  it('a page with nothing to do: waits, asks the AI, then hands it to you', async () => {
     const tab = await start();
     setPage(tab, 'none');
-    for (let i = 0; i < 4; i++) await runner.doStep();
+    await runner.doStep();
+    expect(sentSteps).toHaveLength(0);
+    vi.setSystemTime(Date.now() + 21000);
+    await runner.doStep();
+    expect(sentSteps.at(-1)!.msg).toMatchObject({ mode: 'guide' });
+    await result({ kind: 'acted', action: 'AI: Clicked "Apply Manually"' });
+    await runner.doStep();
     expect(job()).toMatchObject({ status: 'needs-you', reason: expect.stringMatching(/Couldn't find/) });
   });
 

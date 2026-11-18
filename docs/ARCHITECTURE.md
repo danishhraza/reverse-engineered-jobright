@@ -378,8 +378,15 @@ The background runs a small state machine; pages only ever do one thing when ask
    (confirmation text), `apply` (an Apply button), `closed`, or `none`. The highest-ranked
    frame wins.
 3. **Decide.** captcha / verify → **Needs you**. applied → **Applied**. closed → **Skipped**.
-   none → retry a few times (slow pages), then Needs you. Otherwise the winning frame gets
-   one **step**:
+   `loading` (redirect / "please wait" pages, e.g. Indeed → company site) is re-checked for up
+   to 45 s, `none` for 20 s. After that, or when the same page comes back three times, the
+   **AI picks the button**: the page's clickable items are numbered and sent with the URL,
+   title and some visible text, and the model answers with one index (never Submit, never
+   social sign-in, reject optional cookies) or -1. Each page gets one AI try, then Needs you.
+   Otherwise the winning frame gets one **step**:
+   - `blocker`: a pop-up without form fields (privacy notice → "Consent & Continue") or a
+     cookie banner (reject / necessary-only, else close, else accept) is clicked away; a
+     button that didn't work isn't tried again on that page.
    - `apply`: an `<a href>` is opened in the job's tab by the background (a script click can't
      open new tabs); a button is clicked, and if it opens a new tab the job follows it.
      LinkedIn Easy Apply and Indeed's own Apply are skipped.

@@ -87,23 +87,90 @@ async function post(s: LlmSettings, body: object): Promise<{ status: number; jso
 
 /** Ask the model. Retries rate limits / provider errors twice; falls back to plain JSON if the model can't do structured output. */
 export async function askModel(s: LlmSettings, q: AiQuestion, ctx: AskContext): Promise<AiAnswer | null> {
+  const text = await complete(s, SYSTEM, buildPrompt(q, ctx, s.standing), 'answer', SCHEMA);
+  return parseAnswer(text);
+}
+
+// ---------- Which button gets the application moving ----------
+
+const GUIDE_SYSTEM = `You help a browser autofill tool get through online job applications.
+You see one page: its URL, title, some visible text, and a numbered list of things that can be clicked.
+Pick the ONE item to click that moves toward applying for this job (opening the application, getting past a pop-up or notice, choosing to apply manually, continuing).
+Rules:
+- Never pick anything that submits or sends the application, withdraws it, signs out, or deletes anything.
+- Never sign in through LinkedIn, Google, Facebook, Apple or another third-party account.
+- For cookie banners, prefer reject / necessary-only / close. Accept privacy or data notices only when they must be accepted to apply.
+- Prefer applying manually over uploading or parsing a resume through a third party.
+- If a person has to do something (CAPTCHA, a code, a password problem) or nothing here helps, answer -1.
+Confidence is from 0 to 1.`;
+
+const GUIDE_SCHEMA = {
+  type: 'object',
+  properties: {
+    choice: { type: 'integer', description: 'Index of the item to click, or -1' },
+    confidence: { type: 'number' },
+    reason: { type: 'string', description: 'A few words' },
+  },
+  required: ['choice', 'confidence', 'reason'],
+  additionalProperties: false,
+};
+
+export interface GuidePage {
+  url: string;
+  title: string;
+  text: string;
+  buttons: { i: number; text: string; kind: string; inDialog: boolean }[];
+}
+
+export interface GuideAnswer {
+  choice: number;
+  confidence: number;
+  reason: string;
+}
+
+export function buildGuidePrompt(p: GuidePage): string {
+  return [
+    `URL: ${p.url}`,
+    `Title: ${p.title}`,
+    `Visible text (start):\n${p.text}`,
+    `Clickable items:\n${p.buttons.map((b) => `[${b.i}] ${b.kind}${b.inDialog ? ' (in pop-up)' : ''}: "${b.text}"`).join('\n')}`,
+    'Reply with JSON: {"choice": 0, "confidence": 0.0, "reason": "..."}',
+  ].join('\n\n');
+}
+
+export function parseGuide(text: string, count: number): GuideAnswer | null {
+  const m = /\{[\s\S]*\}/.exec(text);
+  if (!m) return null;
+  try {
+    const o = JSON.parse(m[0]) as Partial<GuideAnswer>;
+    const choice = Number(o.choice);
+    if (!Number.isInteger(choice) || choice >= count || choice < -1) return null;
+    return { choice, confidence: Math.max(0, Math.min(1, Number(o.confidence) || 0)), reason: String(o.reason ?? '').slice(0, 160) };
+  } catch {
+    return null;
+  }
+}
+
+export async function askGuide(s: LlmSettings, page: GuidePage): Promise<GuideAnswer | null> {
+  return parseGuide(await complete(s, GUIDE_SYSTEM, buildGuidePrompt(page), 'click', GUIDE_SCHEMA), page.buttons.length);
+}
+
+/** One chat completion; returns the reply text. */
+async function complete(s: LlmSettings, system: string, user: string, schemaName: string, schema: object): Promise<string> {
   if (!s.apiKey) throw new LlmError('No OpenRouter key — add it in Options');
   const base = {
     model: s.model,
     messages: [
-      { role: 'system', content: SYSTEM },
-      { role: 'user', content: buildPrompt(q, ctx, s.standing) },
+      { role: 'system', content: system },
+      { role: 'user', content: user },
     ],
     max_tokens: 1500,
   };
   let structured = true;
   for (let attempt = 0; attempt < 3; attempt++) {
-    const body = structured ? { ...base, response_format: { type: 'json_schema', json_schema: { name: 'answer', strict: true, schema: SCHEMA } } } : base;
+    const body = structured ? { ...base, response_format: { type: 'json_schema', json_schema: { name: schemaName, strict: true, schema } } } : base;
     const { status, json } = await post(s, body);
-    if (status === 200) {
-      const text: string = json?.choices?.[0]?.message?.content ?? '';
-      return parseAnswer(text);
-    }
+    if (status === 200) return json?.choices?.[0]?.message?.content ?? '';
     const msg: string = json?.error?.message ?? `HTTP ${status}`;
     if ((status === 400 || status === 422) && structured && /response_format|structured|json_schema|schema/i.test(msg)) {
       structured = false;
