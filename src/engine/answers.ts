@@ -1,5 +1,5 @@
 import type { Answer, Education, Profile, Work } from '../types';
-import type { Field } from './fields';
+import { currentValue, type Field } from './fields';
 import { norm, patternMatches, type Desired } from './match';
 
 // Classification (question text -> profile key) and resolution (key -> answer).
@@ -267,8 +267,11 @@ export function resolve(c: Classification, p: Profile, field: Field): Resolution
     case 'phoneCountryCode':
       return phoneCountry();
     case 'phone':
-      // The flag / country-code dropdown next to a phone box carries the same label ("Mobile Number *").
-      if (field.kind === 'select' || field.kind === 'combobox' || field.kind === 'buttonGroup') return phoneCountry();
+      // The flag / country-code picker next to a phone box carries the same label ("Mobile Number *").
+      // Leave it: it defaults to the right country, and re-picking one resets the number on many sites.
+      if (field.kind === 'select' || field.kind === 'combobox' || field.kind === 'buttonGroup') {
+        return field.kind === 'select' && field.required && !currentValue(field) ? phoneCountry() : { skip: "Left the site's country code" };
+      }
       // A second, optional number (home, work…): leave it blank.
       if (!field.required && /\b(home|work|office|business|alternate|alt|other|secondary|additional|landline|fax|evening|day ?time)\b/.test(lnorm)) {
         return { skip: 'Optional extra phone number — left blank' };

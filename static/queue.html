@@ -84,6 +84,8 @@
       <label>Give up on a job after (minutes) <input type="number" id="jobTimeoutMin" min="3" max="60" /></label>
       <label>Pause when this many wait on you <input type="number" id="maxHeldTabs" min="1" max="50" /></label>
       <label class="toggle" style="display:flex"><input type="checkbox" id="autoSubmit" /> Submit automatically when nothing is flagged (otherwise it stops at Submit for you to review)</label>
+      <label>If I haven't submitted a Ready one within (minutes; 0 = never) <input type="number" id="autoSubmitAfterMin" min="0" max="1440" /></label>
+      <p class="muted" style="margin:0">With a time limit, a Ready application you haven't submitted or skipped by then is submitted for you: required "I certify / I agree" boxes are ticked, and it stops for you only if a required answer is still missing.</p>
     </div>
 
     <script src="queue.js"></script>

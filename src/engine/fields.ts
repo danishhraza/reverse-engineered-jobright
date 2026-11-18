@@ -395,6 +395,15 @@ export function scanFields(opts: ScanOptions = {}): Field[] {
     push({ kind: 'buttonGroup', el, rawLabel: groupLabel(el), hints: hintsFor(el), choices: g.buttons.map((b) => ({ label: cleanText(b), el: b })) });
   }
 
+  // Last resort: a Yes / No pair recognised by its visible text, whatever it's built from
+  // (radio components whose inner inputs can't be seen or told apart).
+  const covered = fields.flatMap((f) => [f.el, ...(f.choices ?? []).map((c) => c.el)]);
+  for (const g of findYesNoByText(roots, exclude, covered)) {
+    const rawLabel = groupLabel(g.container);
+    if (!stripLabel(rawLabel)) continue; // a lone Yes/No with no question isn't a question
+    push({ kind: 'buttonGroup', el: g.container, rawLabel, hints: hintsFor(g.container), choices: g.items.map((i) => ({ label: squash(i.textContent ?? ''), el: i })) });
+  }
+
   // Document order makes filling feel natural and handles dependent fields (country before state).
   // A field inside a web component sorts where its outermost host is.
   const anchor = (el: Element) => {
@@ -478,8 +487,11 @@ export function currentValue(f: Field): string {
   switch (f.kind) {
     case 'text':
     case 'textarea':
-    case 'date':
-      return (el as HTMLInputElement).value ?? '';
+    case 'date': {
+      const v = (el as HTMLInputElement).value ?? '';
+      // A phone box pre-filled with just its dial code ("+1 ") is still empty.
+      return /^\s*\+\d{1,4}[\s-]*$/.test(v) ? '' : v;
+    }
     case 'richtext':
       return (el.innerText ?? el.textContent ?? '').trim();
     case 'select': {
@@ -505,12 +517,61 @@ export function currentValue(f: Field): string {
 }
 
 export function isPressed(b: HTMLElement): boolean {
-  return (
+  if (
     b.getAttribute('aria-pressed') === 'true' ||
     b.getAttribute('aria-checked') === 'true' ||
     b.getAttribute('data-state') === 'on' ||
-    /\b(selected|active|is-selected|_active)\w*/i.test(b.className)
-  );
+    /\b(selected|active|is-selected|_active)\w*/i.test(typeof b.className === 'string' ? b.className : '')
+  ) {
+    return true;
+  }
+  // A choice drawn around a real radio: the radio inside it, in its shadow root, or the one its label points at.
+  const inner = b.shadowRoot?.querySelector<HTMLInputElement>('input[type="radio"], input[type="checkbox"]') ?? b.querySelector<HTMLInputElement>('input[type="radio"], input[type="checkbox"]');
+  if (inner?.checked) return true;
+  const ctl = (b.closest('label') as HTMLLabelElement | null)?.control as HTMLInputElement | null;
+  if (ctl?.checked) return true;
+  const host = shadowHost(b);
+  return !!host && (host.getAttribute('aria-checked') === 'true' || (host.hasAttribute('checked') && host.getAttribute('checked') !== 'false'));
+}
+
+/** `a` contains `b`, looking through shadow roots. */
+function composedContains(a: Element, b: Element): boolean {
+  for (let n: Element | null = b; n; n = n.parentElement ?? shadowHost(n)) if (n === a) return true;
+  return false;
+}
+
+/** Yes / No pairs found by their text: the innermost element holding each word, grouped by their nearest shared container. */
+function findYesNoByText(roots: ParentNode[], exclude: string, covered: Element[]): { container: HTMLElement; items: HTMLElement[] }[] {
+  const items: HTMLElement[] = [];
+  for (const r of roots) {
+    const walker = document.createTreeWalker(r as Node, NodeFilter.SHOW_TEXT);
+    for (let t = walker.nextNode(); t; t = walker.nextNode()) {
+      const word = (t.nodeValue ?? '').trim();
+      if (!/^(yes|no)$/i.test(word)) continue;
+      const el = t.parentElement;
+      if (!el || (el.textContent ?? '').trim() !== word || el.matches('option, script, style, button, [role="button"], [role="option"]') || el.closest(exclude)) continue;
+      if (!isVisible(el) || covered.some((c) => composedContains(c, el) || composedContains(el, c))) continue;
+      items.push(el);
+    }
+  }
+  const used = new Set<HTMLElement>();
+  const out: { container: HTMLElement; items: HTMLElement[] }[] = [];
+  for (const yes of items) {
+    if (used.has(yes) || !/^yes$/i.test(yes.textContent!.trim())) continue;
+    let n: Element | null = yes;
+    for (let i = 0; i < 5 && n; i++) {
+      n = n.parentElement ?? shadowHost(n);
+      if (!n || n.matches('form, body')) break;
+      const inside = items.filter((x) => !used.has(x) && composedContains(n!, x));
+      if (!inside.some((x) => /^no$/i.test(x.textContent!.trim()))) continue;
+      if (inside.length === 2) {
+        inside.forEach((x) => used.add(x));
+        out.push({ container: n as HTMLElement, items: inside });
+      }
+      break; // the first container holding a "No" decides; more than a pair means it spans questions
+    }
+  }
+  return out;
 }
 
 const PLACEHOLDER = /^(select( one)?|choose|please select|select\.{3}|--+|search|start typing|type to search)\W*$/i;

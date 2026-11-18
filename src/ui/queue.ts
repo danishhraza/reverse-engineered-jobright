@@ -125,7 +125,9 @@ function row(j: QueueJob): HTMLTableRowElement {
   const tr = document.createElement('tr');
   const name = j.title || j.company ? `${esc(j.title ?? '')}${j.title && j.company ? ' · ' : ''}${esc(j.company ?? '')}` : esc(host(j.url));
   tr.innerHTML = `
-    <td><span class="pill ${j.status}">${LABEL[j.status]}</span>${j.priority && j.status === 'queued' ? ' <span class="muted">next</span>' : ''}</td>
+    <td><span class="pill ${j.status}">${LABEL[j.status]}</span>${j.priority && j.status === 'queued' ? ' <span class="muted">next</span>' : ''}${
+      j.status === 'ready' && j.submitAt ? `<div class="muted" style="font-size:11px">auto-submits ${new Date(j.submitAt).toTimeString().slice(0, 5)}</div>` : ''
+    }</td>
     <td class="job"><div class="t">${name}</div><a href="${esc(j.url)}" target="_blank" rel="noreferrer">${esc(host(j.url))}</a>${j.profile ? ` <span class="muted">· ${esc(j.profile)}</span>` : ''}</td>
     <td class="why">${esc(j.reason ?? j.log.at(-1)?.slice(6) ?? '')}${j.log.length ? ` <a href="#" class="toggle">${open.has(j.id) ? 'hide log' : 'log'}</a>` : ''}${open.has(j.id) ? `<div class="log">${esc(j.log.join('\n'))}</div>` : ''}</td>
     <td class="acts"></td>`;
@@ -201,7 +203,7 @@ $('pause').addEventListener('click', () => chrome.runtime.sendMessage({ type: 'r
 
 // ---------- Settings ----------
 
-const NUMS = ['dailyCap', 'delayMinSec', 'delayMaxSec', 'jobTimeoutMin', 'maxHeldTabs'] as const;
+const NUMS = ['dailyCap', 'delayMinSec', 'delayMaxSec', 'jobTimeoutMin', 'maxHeldTabs', 'autoSubmitAfterMin'] as const;
 let settingsShown = false;
 
 function renderSettings(ap: AutopilotSettings): void {

@@ -1,6 +1,6 @@
 import { cleanText, isVisible, pressKey, realClick, setNativeValue, sleep, squash, typeText, waitFor, waitForSettle } from './dom';
 import { checkCancel, isCancelled, status } from './control';
-import { clickTarget, comboboxDisplay, currentValue, isChecked, shadowHost, valueBoxText, type Field } from './fields';
+import { clickTarget, comboboxDisplay, currentValue, isChecked, isPressed, shadowHost, valueBoxText, type Field } from './fields';
 import { isPlaceholderOption, jaccard, matchOption, norm, type Desired } from './match';
 
 // One function per widget kind. Each returns how confident we are that the
@@ -72,7 +72,7 @@ async function fillText(f: Field, value: string, overwrite: boolean): Promise<Wi
   const el = f.el as HTMLInputElement | HTMLTextAreaElement;
   const cur = el.value ?? '';
   if (cur === value) return { ok: true, value, match: 1 };
-  if (cur.trim() && !overwrite) return { ok: true, value: cur, match: 1, skipped: true, reason: 'Already filled' };
+  if (currentValue(f).trim() && !overwrite) return { ok: true, value: cur, match: 1, skipped: true, reason: 'Already filled' };
   el.focus({ preventScroll: true });
   setNativeValue(el, value);
   el.dispatchEvent(new Event('blur', { bubbles: true }));
@@ -204,6 +204,18 @@ async function fillChoice(f: Field, d: Desired, overwrite: boolean): Promise<Wid
       await sleep(80);
     }
     if (!isChecked(input)) return { ok: false, match: 0, reason: 'Radio did not select' };
+  }
+  if (f.kind === 'buttonGroup' && !isPressed(target)) {
+    // A Yes/No found by its text: the thing that actually takes the click may be the radio
+    // inside it, in its shadow root, or the component around it.
+    const inner = target.shadowRoot?.querySelector<HTMLElement>('input, [role="radio"], label') ?? target.querySelector<HTMLElement>('input, [role="radio"]');
+    for (const alt of [inner, target.closest('label'), shadowHost(target)]) {
+      if (!alt || isPressed(target)) continue;
+      realClick(alt);
+      await sleep(80);
+    }
+    // Some components show the choice in ways we can't read; a click on the right word is still likely right.
+    if (!isPressed(target)) return { ok: true, value: choice.label, match: Math.min(m.score, 0.85), reason: "Clicked — couldn't confirm it took" };
   }
   return { ok: true, value: choice.label, match: m.score };
 }

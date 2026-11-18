@@ -35,6 +35,8 @@ export interface QueueJob {
   updatedAt: number;
   startedAt?: number;
   appliedAt?: number;
+  /** Ready jobs: when it will be submitted for you if you haven't (review mode with a time limit). */
+  submitAt?: number;
   /** Last few things the runner did, newest last. */
   log: string[];
 }
@@ -51,6 +53,8 @@ export interface AutopilotSettings {
   maxHeldTabs: number;
   /** Press Submit yourself (review mode) unless this is on. */
   autoSubmit: boolean;
+  /** Review mode: submit a Ready application yourself within this many minutes, or it's submitted for you. 0 = never. */
+  autoSubmitAfterMin: number;
 }
 
 export const DEFAULT_AUTOPILOT: AutopilotSettings = {
@@ -60,6 +64,7 @@ export const DEFAULT_AUTOPILOT: AutopilotSettings = {
   jobTimeoutMin: 10,
   maxHeldTabs: 12,
   autoSubmit: false,
+  autoSubmitAfterMin: 0,
 };
 
 export interface LlmSettings {

@@ -8,6 +8,8 @@ const local: Record<string, unknown> = {};
 const tabs = new Map<number, { id: number; url: string; status: string; windowId: number }>();
 let nextTabId = 100;
 const sentSteps: { tabId: number; msg: any }[] = [];
+const alarms = new Set<string>();
+const submitAsks: number[] = [];
 let page: (tabId: number, msg: any) => unknown = () => null;
 
 const clone = <T,>(v: T): T => (v === undefined ? v : structuredClone(v));
@@ -42,12 +44,13 @@ const clone = <T,>(v: T): T => (v === undefined ? v : structuredClone(v));
     remove: async (id: number) => void tabs.delete(id),
     sendMessage: async (tabId: number, msg: any) => {
       if (msg.type === 'autoStep') sentSteps.push({ tabId, msg });
+      if (msg.type === 'submitReady') submitAsks.push(tabId);
       return page(tabId, msg);
     },
   },
   windows: { get: async (id: number) => ({ id }), create: async () => ({ id: 1 }), update: async () => {} },
   webNavigation: { getAllFrames: async () => [{ frameId: 0 }] },
-  alarms: { create: async () => {}, clear: async () => true },
+  alarms: { create: async (name: string) => void alarms.add(name), clear: async (name: string) => alarms.delete(name) },
   notifications: { create: (_i: string, _o: unknown, cb?: () => void) => cb?.() },
   action: { setBadgeText: async () => {}, setBadgeBackgroundColor: async () => {} },
 };
@@ -76,6 +79,8 @@ beforeEach(async () => {
   tabs.clear();
   probes.clear();
   sentSteps.length = 0;
+  alarms.clear();
+  submitAsks.length = 0;
   page = (tabId, msg) => (msg.type === 'autoProbe' ? (probes.get(tabId) ?? { kind: 'none', sig: '' }) : msg.type === 'autoStep' ? { ok: true } : null);
   vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'Date'] });
   await runner.queueAction({ action: 'add', jobs: [{ url: 'https://jobs.example.com/1', company: 'Acme' }, { url: 'https://jobs.example.com/2?utm_source=x', company: 'Globex' }] });
@@ -262,6 +267,38 @@ describe('a job, start to finish', () => {
     tabs.get(tab)!.url = 'https://acme.com/apply/questions';
     await runner.doStep();
     expect(sentSteps.at(-1)!.msg).toMatchObject({ onlyEmpty: false });
+  });
+
+  it('submits a Ready job for you when you have not got to it in time', async () => {
+    await store.setAutopilot({ autoSubmitAfterMin: 30 });
+    const tab = await start();
+    setPage(tab, 'form');
+    await runner.doStep();
+    await result({ kind: 'ready', reason: 'Ready to submit' });
+    const id = job().id;
+    expect(job().submitAt).toBeGreaterThan(Date.now() + 29 * 60000);
+    expect(alarms.has(`autopilot-submit:${id}`)).toBe(true);
+
+    await runner.onAlarm(`autopilot-submit:${id}`);
+    await settle();
+    expect(submitAsks).toEqual([tab]);
+    await runner.onReadyResult(id, { kind: 'applied', reason: 'Submitted' });
+    expect(job()).toMatchObject({ status: 'applied', reason: expect.stringMatching(/not reviewed in time/), tabId: undefined });
+    expect(tabs.has(tab)).toBe(false);
+  });
+
+  it('no auto-submit once you have dealt with it yourself', async () => {
+    await store.setAutopilot({ autoSubmitAfterMin: 30 });
+    const tab = await start();
+    setPage(tab, 'form');
+    await runner.doStep();
+    await result({ kind: 'ready', reason: 'Ready to submit' });
+    const id = job().id;
+    await runner.queueAction({ action: 'markApplied', id });
+    expect(alarms.has(`autopilot-submit:${id}`)).toBe(false);
+    await runner.onAlarm(`autopilot-submit:${id}`);
+    await settle();
+    expect(submitAsks).toEqual([]);
   });
 
   it('Pause puts the running job back at the front, keeping its tab', async () => {

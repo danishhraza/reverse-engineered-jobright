@@ -388,12 +388,89 @@ async function finish(st: RunnerState, job: QueueJob, status: JobStatus, reason:
   if (status === 'needs-you') notify(`Needs you: ${j.company ?? j.title ?? new URL(j.url).hostname}`, reason);
 
   const ap = await getAutopilot();
+  if (status === 'ready' && ap.autoSubmitAfterMin > 0) {
+    // Review mode with a time limit: if you haven't submitted it by then, it's submitted for you.
+    const at = now() + ap.autoSubmitAfterMin * 60000;
+    await chrome.alarms.create(`${ALARM_SUBMIT}${j.id}`, { when: at });
+    await update(j.id, (x) => {
+      x.submitAt = at;
+      log(x, `Will submit at ${new Date(at).toTimeString().slice(0, 5)} unless you do first`);
+    });
+  }
   if (st.running) await scheduleNext(rand(ap.delayMinSec, ap.delayMaxSec) * 1000);
+}
+
+// ---------- Ready jobs you didn't get to in time ----------
+
+const ALARM_SUBMIT = 'autopilot-submit:';
+
+async function cancelAutoSubmit(j: QueueJob): Promise<void> {
+  j.submitAt = undefined;
+  await chrome.alarms.clear(`${ALARM_SUBMIT}${j.id}`);
+}
+
+/** Time's up on a Ready job: ask the frame with the Submit button to submit it. */
+async function submitReady(jobId: string): Promise<void> {
+  const job = (await getQueue()).find((j) => j.id === jobId);
+  if (!job || job.status !== 'ready') return;
+  const tab = await tabAlive(job.tabId);
+  if (!tab) {
+    await locked(() => update(jobId, (j) => {
+      j.status = 'needs-you';
+      j.reason = 'Its tab was closed before it could be submitted for you — open it and submit';
+      j.submitAt = undefined;
+      j.tabId = undefined;
+    }));
+    return setBadge();
+  }
+  await locked(() => update(jobId, (j) => {
+    j.submitAt = undefined;
+    j.reason = 'Submitting for you…';
+    log(j, 'Not submitted in time — submitting it for you');
+  }));
+  const frames = (await chrome.webNavigation.getAllFrames({ tabId: tab.id! }).catch(() => null)) ?? [{ frameId: 0 }];
+  for (const f of frames) chrome.tabs.sendMessage(tab.id!, { type: 'submitReady', jobId, profileId: job.profile }, { frameId: f.frameId }).catch(() => {});
+}
+
+/** What happened when a Ready job was submitted for you. */
+export function onReadyResult(jobId: string, outcome: StepOutcome): Promise<void> {
+  return locked(async () => {
+    const q = await getQueue();
+    const j = q.find((x) => x.id === jobId);
+    if (!j || j.status !== 'ready') return;
+    if (outcome.kind === 'applied') {
+      j.status = 'applied';
+      j.appliedAt = now();
+      j.reason = 'Submitted for you (not reviewed in time)';
+      if (j.tabId !== undefined) chrome.tabs.remove(j.tabId).catch(() => {});
+      j.tabId = undefined;
+    } else if (outcome.kind === 'acted') {
+      j.reason = 'Pressed Submit — waiting for the confirmation page';
+      // If no confirmation shows up, hand it to you.
+      setTimeout(() => void confirmSubmitted(jobId), 15000);
+    } else {
+      j.status = 'needs-you';
+      j.reason = `Couldn't submit it for you: ${'reason' in outcome ? outcome.reason : 'no Submit button'}`;
+      notify(`Needs you: ${j.company ?? j.title ?? new URL(j.url).hostname}`, j.reason);
+    }
+    log(j, j.reason ?? '');
+    await saveQueue(q);
+    await setBadge();
+  });
+}
+
+async function confirmSubmitted(jobId: string): Promise<void> {
+  const job = (await getQueue()).find((j) => j.id === jobId);
+  if (!job || job.status !== 'ready') return; // already marked (the confirmation page loaded)
+  const tab = await tabAlive(job.tabId);
+  const applied = tab ? (await probeFrames(tab.id!)).some((p) => p.probe.kind === 'applied') : false;
+  await onReadyResult(jobId, applied ? { kind: 'applied', reason: 'Confirmation page' } : { kind: 'needs-you', reason: "Pressed Submit but couldn't see a confirmation — check it" });
 }
 
 // ---------- events from the browser ----------
 
 export async function onAlarm(name: string): Promise<void> {
+  if (name.startsWith(ALARM_SUBMIT)) return submitReady(name.slice(ALARM_SUBMIT.length));
   if (name === ALARM_NEXT) return nextJob();
   if (name === ALARM_STEP) return doStep();
   if (name === ALARM_TIMEOUT) {
@@ -438,10 +515,12 @@ export async function onPageLoaded(tabId: number, frameId: number): Promise<void
         await update(job.id, (j) => {
           j.status = 'applied';
           j.appliedAt = now();
-          j.reason = 'You submitted it';
+          j.reason = j.reason?.startsWith('Pressed Submit') ? 'Submitted for you (not reviewed in time)' : 'You submitted it';
           j.tabId = undefined;
-          log(j, 'applied: you submitted it');
+          j.submitAt = undefined;
+          log(j, `applied: ${j.reason}`);
         });
+        await chrome.alarms.clear(`${ALARM_SUBMIT}${job.id}`);
       });
       await setBadge();
     }, 2000);
@@ -526,6 +605,8 @@ export function queueAction(a: QueueAction): Promise<{ ok: boolean; added?: numb
     const j = q.find((x) => x.id === a.id);
     if (!j) return { ok: false };
     const busy = st.currentJobId === j.id;
+    // You dealt with it: no auto-submit (Open is just a look).
+    if (a.action !== 'open') await cancelAutoSubmit(j);
     switch (a.action) {
       case 'open': {
         const tab = await tabAlive(j.tabId);

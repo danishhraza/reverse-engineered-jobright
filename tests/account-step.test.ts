@@ -87,6 +87,26 @@ describe('create account', () => {
   });
 });
 
+describe('Ready application not reviewed in time', () => {
+  it('ticks the required certification, presses Submit and sees the confirmation', async () => {
+    const { submitReady } = await import('../src/content/autopilot');
+    document.body.innerHTML = `<form id="f"><h2>Review &amp; Submit</h2>
+      <label><input type="checkbox" id="cert" required> I certify that the information I provided is true and complete *</label>
+      <button type="button" id="sub">Submit Application</button></form>`;
+    document.getElementById('sub')!.addEventListener('click', () => {
+      if ((document.getElementById('cert') as HTMLInputElement).checked) document.body.innerHTML = '<h1>Thank you for applying!</h1>';
+    });
+    const out = await submitReady('swe', () => {});
+    expect(out).toMatchObject({ kind: 'applied' });
+  }, 40000);
+
+  it('does nothing in a frame without a Submit button', async () => {
+    const { submitReady } = await import('../src/content/autopilot');
+    document.body.innerHTML = '<p>ads</p>';
+    expect(await submitReady('swe', () => {})).toBeNull();
+  });
+});
+
 describe('pop-ups', () => {
   it('presses "Consent & Continue" on a privacy notice, not "Decline & Close"', async () => {
     document.body.innerHTML = `<h1>Analyst</h1><button>Apply</button>

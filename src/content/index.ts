@@ -1,7 +1,8 @@
 import { isKnownAts, pickAdapter } from '../adapters';
 import { getLearned, getSettings } from '../profile/storage';
 import { loadSetup } from './context';
-import { probe, step, type StepRequest } from './autopilot';
+import { probe, step, submitReady, type StepRequest } from './autopilot';
+import { snapshot } from './snapshot';
 import { looksLikeForm } from '../engine/fields';
 import { cancel } from '../engine/control';
 import { sleep, waitForSettle } from '../engine/dom';
@@ -19,6 +20,8 @@ type Msg =
   | { type: 'fabReport'; report: FillReport }
   | { type: 'focus'; id: string }
   | { type: 'autoProbe' }
+  | { type: 'submitReady'; jobId: string; profileId?: string }
+  | { type: 'snapshot' }
   | ({ type: 'autoStep'; step: number } & StepRequest);
 
 // The form control you last clicked or tabbed into, for "fill just this field".
@@ -133,6 +136,17 @@ chrome.runtime.onMessage.addListener((msg: Msg, _sender, reply) => {
     } catch (e) {
       reply({ kind: 'none', sig: location.href, detail: String(e) });
     }
+    return;
+  }
+  if (msg.type === 'submitReady') {
+    reply({ ok: true });
+    submitReady(msg.profileId, (report) => send({ type: 'report', report }))
+      .then((outcome) => outcome && send({ type: 'readyResult', jobId: msg.jobId, outcome }))
+      .catch((e) => send({ type: 'readyResult', jobId: msg.jobId, outcome: { kind: 'needs-you', reason: `Error: ${e?.message ?? e}` } }));
+    return;
+  }
+  if (msg.type === 'snapshot') {
+    reply(snapshot());
     return;
   }
   if (msg.type === 'autoStep') {

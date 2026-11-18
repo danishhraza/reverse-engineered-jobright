@@ -176,6 +176,34 @@ profileSel.addEventListener('change', () => setSettings({ activeProfileId: profi
 for (const k of ['autoAdvance', 'learn'] as const) {
   $<HTMLInputElement>(k).addEventListener('change', (e) => setSettings({ [k]: (e.target as HTMLInputElement).checked } as Partial<Settings>));
 }
+// "Save page snapshot": the page's structure (inside web components too) and what the scanner saw, as one HTML file.
+$('snapshot').addEventListener('click', async (e) => {
+  e.preventDefault();
+  const id = tabId ?? (await currentTab());
+  if (id === undefined) return;
+  statusEl.textContent = 'Saving a snapshot of this page…';
+  const parts: { url: string; title: string; top: boolean; fields: unknown[]; html: string }[] = await chrome.runtime.sendMessage({ type: 'snapshotTab', tabId: id });
+  if (!parts?.length) {
+    statusEl.textContent = "Couldn't read this page (reload it, then try again).";
+    return;
+  }
+  const top = parts.find((p) => p.top) ?? parts[0];
+  const report = [...reports.values()].map((r) => ({ ats: r.ats, page: r.page, message: r.message, fields: r.fields }));
+  const doc = [
+    '<!doctype html><meta charset="utf-8">',
+    `<title>Snapshot: ${esc(top.title)}</title>`,
+    `<!-- autofill-snapshot ${new Date().toISOString()}\n${JSON.stringify({ report, frames: parts.map((p) => ({ url: p.url, top: p.top, fields: p.fields })) }, null, 1).replace(/--/g, '- -')}\n-->`,
+    ...parts.map((p) => `<section data-frame-url="${esc(p.url)}">${p.html}</section>`),
+  ].join('\n');
+  const url = URL.createObjectURL(new Blob([doc], { type: 'text/html' }));
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = `autofill-snapshot-${new URL(top.url).hostname}-${new Date().toISOString().slice(0, 16).replace(/[:T]/g, '-')}.html`;
+  a.click();
+  setTimeout(() => URL.revokeObjectURL(url), 5000);
+  statusEl.textContent = `Saved ${a.download} to your Downloads folder.`;
+});
+
 $('openOptions').addEventListener('click', (e) => {
   e.preventDefault();
   chrome.runtime.openOptionsPage();

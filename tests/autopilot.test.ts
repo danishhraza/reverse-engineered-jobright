@@ -172,7 +172,12 @@ describe('ADP-style contact page', () => {
   });
 
   it('fills the mobile number, leaves optional extras alone, and is not blocked by the flag picker', async () => {
+    // The site pre-fills the dial code; re-picking the country would reset the number.
+    (document.getElementById('mob') as HTMLInputElement).value = '+1 ';
+    let flagClicks = 0;
+    document.getElementById('flag')!.addEventListener('click', () => flagClicks++);
     const report = await run({ ...base, profile: exampleProfile('swe'), autoAdvance: false });
+    expect(flagClicks).toBe(0);
     const val = (id: string) => (document.getElementById(id) as HTMLInputElement).value;
     expect(val('mob')).not.toBe('');
     expect(val('home')).toBe('');
@@ -227,6 +232,31 @@ describe('Next anyway (autopilot)', () => {
     expect(report.stop).toBe('blocked');
     expect(document.getElementById('s2')!.hidden).toBe(true);
   }, 40000);
+});
+
+describe('Yes / No found by their text', () => {
+  it('answers Yes/No choices built from plain elements, with no inputs or roles to go on', async () => {
+    document.body.innerHTML = `
+      <form><h3>Please answer the following questions:</h3>
+        <div class="q"><p>1. Are you legally authorized to work in the United States? *</p>
+          <div class="opts"><span class="opt"><i class="dot"></i><span>Yes</span></span><span class="opt"><i class="dot"></i><span>No</span></span></div></div>
+        <div class="q"><p>2. Will you now, or in the future, require sponsorship for employment visa status? *</p>
+          <div class="opts"><span class="opt"><i class="dot"></i><span>Yes</span></span><span class="opt"><i class="dot"></i><span>No</span></span></div></div>
+        <p>Already answered elsewhere:</p>
+        <label><input type="radio" name="x" value="1"> Yes</label><label><input type="radio" name="x" value="0"> No</label>
+      </form>`;
+    for (const s of Array.from(document.querySelectorAll<HTMLElement>('.opt span'))) {
+      s.addEventListener('click', () => {
+        for (const o of Array.from(s.closest('.opts')!.querySelectorAll('.opt'))) o.classList.toggle('selected', o.contains(s));
+      });
+    }
+    const report = await run({ ...base, profile: exampleProfile('swe'), autoAdvance: false });
+    const chosen = (i: number) => document.querySelectorAll('.opts')[i].querySelector('.opt.selected')?.textContent;
+    expect(chosen(0)).toBe('Yes');
+    expect(chosen(1)).toBe('No');
+    // The real radio group is still one field, not also picked up by the text fallback.
+    expect(report.fields.filter((f) => /already answered/i.test(f.label))).toHaveLength(1);
+  }, 30000);
 });
 
 describe('ADP address block', () => {
@@ -368,6 +398,21 @@ describe('fields inside web components (shadow DOM)', () => {
     expect(inner('ln')).toBe('Example');
     expect(report.fields.find((f) => f.label === 'First Name')?.status).toBe('filled');
   }, 30000);
+});
+
+describe('page snapshot', () => {
+  it('includes what is inside web components, live values, and what the scanner saw', async () => {
+    const { snapshot } = await import('../src/content/snapshot');
+    document.body.innerHTML = '<form><p>Q?</p><x-box id="b"></x-box><label for="e">Email</label><input id="e"><input type="password" id="pw"></form>';
+    document.getElementById('b')!.attachShadow({ mode: 'open' }).innerHTML = '<label>Yes<input type="radio"></label>';
+    (document.getElementById('e') as HTMLInputElement).value = 'a@b.c';
+    (document.getElementById('pw') as HTMLInputElement).value = 'secret';
+    const s = snapshot();
+    expect(s.html).toMatch(/<template shadowrootmode="open"><label>Yes<input type="radio"[^>]* data-live-checked="false"><\/label><\/template>/);
+    expect(s.html).toContain('data-live-value="a@b.c"');
+    expect(s.html).not.toContain('secret');
+    expect(s.fields.find((f) => f.label === 'Email')).toMatchObject({ kind: 'text', key: 'email', value: 'a@b.c' });
+  });
 });
 
 describe('AI button picker', () => {

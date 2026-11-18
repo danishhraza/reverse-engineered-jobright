@@ -266,6 +266,32 @@ async function formStep(req: StepRequest, onReport: (r: FillReport) => void): Pr
   return submit();
 }
 
+/**
+ * A Ready application you didn't submit in time: tick the required "I certify" boxes, fill any
+ * required box still empty, and press Submit. Null when this frame has no Submit button.
+ */
+export async function submitReady(profileId: string | undefined, onReport: (r: FillReport) => void): Promise<StepOutcome | null> {
+  if (!submitButton()) return null;
+  if (isRunning()) return { kind: 'needs-you', reason: 'A fill was running on the page' };
+  const setup = await loadSetup(profileId);
+  if ('error' in setup) return { kind: 'needs-you', reason: setup.error };
+  const report = await run({
+    profile: setup.profile,
+    learned: setup.learned,
+    overwrite: false,
+    requiredOnly: true,
+    agreeToTerms: true,
+    autoAdvance: false,
+    learn: false,
+    autopilot: true,
+    ai: setup.ai,
+    onReport,
+  });
+  const blocking = report.fields.filter((f) => f.status === 'flagged' && f.required);
+  if (blocking.length) return { kind: 'needs-you', reason: `Required: ${blocking.map((f) => `"${f.label.slice(0, 50)}"`).join(', ')}` };
+  return submit();
+}
+
 async function submit(): Promise<StepOutcome> {
   const btn = submitButton();
   if (!btn) return { kind: 'needs-you', reason: "Couldn't find the Submit button" };

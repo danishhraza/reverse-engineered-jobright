@@ -5,7 +5,7 @@ import type { AiQuestion } from './engine/fill';
 import { norm } from './engine/match';
 import { askGuide, askModel } from './llm/openrouter';
 import { getAiAnswers, getLlm, saveAiAnswer } from './queue/store';
-import { onAlarm, onPageLoaded, onStepResult, onTabCreated, onTabRemoved, pauseRunner, queueAction, recover, startRunner, type QueueAction } from './queue/runner';
+import { onAlarm, onPageLoaded, onReadyResult, onStepResult, onTabCreated, onTabRemoved, pauseRunner, queueAction, recover, startRunner, type QueueAction } from './queue/runner';
 
 // Routes "fill this tab" to every frame and keeps the latest report per frame
 // (chrome.storage.session) so the side panel can show it when opened later.
@@ -198,6 +198,21 @@ chrome.runtime.onMessage.addListener((msg, sender, reply) => {
       // Nothing was actually running (e.g. the page reloaded mid-fill): just close out the report.
       if (!replies.some(Boolean)) await closeOut(tabId, 'Stopped.', undefined, true);
       reply({ ok: true });
+    })();
+    return true;
+  }
+  if (msg.type === 'readyResult') {
+    void onReadyResult(msg.jobId, msg.outcome);
+    return;
+  }
+  if (msg.type === 'snapshotTab') {
+    // Every frame's page structure + what the scanner saw, for a bug report.
+    (async () => {
+      const frames = (await chrome.webNavigation.getAllFrames({ tabId: msg.tabId })) ?? [{ frameId: 0 }];
+      const parts = await Promise.all(
+        frames.map((f) => chrome.tabs.sendMessage(msg.tabId, { type: 'snapshot' }, { frameId: f.frameId }).catch(() => null)),
+      );
+      reply(parts.filter(Boolean));
     })();
     return true;
   }
