@@ -315,6 +315,8 @@ export function scanFields(opts: ScanOptions = {}): Field[] {
   // Custom comboboxes first so their inner inputs aren't double-counted as text fields.
   for (const el of deep<HTMLElement>(roots, '[role="combobox"], [aria-haspopup="listbox"], input[aria-autocomplete]')) {
     if (el.closest(exclude) || seen.has(el) || !isVisible(el)) continue;
+    // A native <select> marked role="combobox" (iCIMS) is still a select: set its value, no popup to wait for.
+    if (el.tagName === 'SELECT') continue;
     if (!isCombobox(el)) continue;
     if ((el as HTMLInputElement).disabled) continue;
     // A combobox wrapper div that contains the actual input: prefer the input.

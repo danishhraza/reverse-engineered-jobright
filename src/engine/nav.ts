@@ -16,8 +16,9 @@ function visibleButtons(root: ParentNode = document): HTMLElement[] {
   );
 }
 
-const NEXT = /^(next|continue|save (and|&) continue|save (and|&) next|next step|proceed|continue to next step|save and proceed)\b/i;
-const NOT_NEXT = /\b(with|linkedin|google|indeed|apple|facebook|microsoft|shopping|reading|later)\b|submit/i;
+// iCIMS's "Submit Profile" saves your candidate profile and moves on to the questions: a Next, not the final submit.
+const NEXT = /^(next|continue|save (and|&) continue|save (and|&) next|next step|proceed|continue to next step|save and proceed|(submit|save) (my |your )?profile)\b/i;
+const NOT_NEXT = /\b(with|linkedin|google|indeed|apple|facebook|microsoft|shopping|reading|later)\b|submit(?! (my |your )?profile)/i;
 const SUBMIT = /^(submit( (my |your |the )?application)?|send( my)? application|complete( my)? application|finish( application)?|submit and finish)$/i;
 const APPLY =
   /^(apply( now| today| for this (job|position|role|opportunity)| to (this )?(job|position|role)| online| here| manually)?|easy apply|(start|begin|continue)( your| my| an?| the)? application|apply on (the )?company( site|'s site| website)|i'?m interested|submit (an |your )?application|autofill with (resume|cv)|apply (with|using) (my )?(resume|cv)|apply (with|via|using) [\w .]+)$/i;
