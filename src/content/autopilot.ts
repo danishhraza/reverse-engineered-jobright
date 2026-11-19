@@ -1,7 +1,7 @@
 import { looksLikeForm, scanFields } from '../engine/fields';
 import { classify } from '../engine/answers';
 import { cleanText, isVisible, realClick, sleep, squash, waitFor, waitForSettle } from '../engine/dom';
-import { applyButton, buttonText, submitButton } from '../engine/nav';
+import { applyButton, buttonText, disabledNext, genericNext, submitButton } from '../engine/nav';
 import { isRunning, run } from '../engine/run';
 import type { FillReport } from '../types';
 import type { Probe, StepOutcome } from '../queue/types';
@@ -71,7 +71,10 @@ function probeKind(text: string, sig: string): Probe {
   // (iCIMS starts with just Email + Phone in a frame), unless there's an Apply button here — then
   // a small form is more likely a newsletter / talent-community sign-up.
   const score = pw ? 0 : applicationScore();
-  const formy = !pw && (score >= 3 || (score >= 2 && (looksLikeForm() || !applyButton())));
+  // "Start with your email" pages (Oracle Cloud): one email box and a Next button, nothing to Apply to.
+  const emailGate =
+    score >= 1 && !!document.querySelector('input[type="email"], input[autocomplete="email"], input[name*="email" i], input[id*="email" i]') && !!(genericNext() || disabledNext()) && !applyButton();
+  const formy = !pw && (score >= 3 || (score >= 2 && (looksLikeForm() || !applyButton())) || emailGate);
   if (!pw && !formy && VERIFY.test(text)) return { kind: 'verify', sig, detail: squash(VERIFY.exec(text)?.[0] ?? '') };
   if (pw) return { kind: 'account', sig };
   if (formy) return { kind: 'form', sig };

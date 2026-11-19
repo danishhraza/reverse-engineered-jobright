@@ -245,11 +245,15 @@ async function fillChoice(f: Field, d: Desired, overwrite: boolean): Promise<Wid
 async function fillCheckbox(f: Field, d: Desired): Promise<WidgetResult> {
   const el = f.el as HTMLInputElement;
   const want = d.bool ?? /^(yes|true|1)$/i.test(d.text);
-  if (el.checked !== want) {
-    realClick(!isVisible(el) && el.labels?.[0] ? el.labels[0] : el);
-    await sleep(50);
+  // A drawn checkbox (the real one hidden) may only show its state on the drawing: "…--checked".
+  const target = clickTarget(el);
+  const drawnChecked = () => [target, target.parentElement].some((n) => !!n && /(^|[-_\s])checked\b/i.test(typeof n.className === 'string' ? n.className : ''));
+  const done = () => el.checked === want || (want && drawnChecked());
+  if (!done()) {
+    realClick(target);
+    await sleep(80);
   }
-  return el.checked === want ? { ok: true, value: want ? 'Checked' : 'Unchecked', match: 1 } : { ok: false, match: 0, reason: 'Checkbox did not toggle' };
+  return done() ? { ok: true, value: want ? 'Checked' : 'Unchecked', match: 1 } : { ok: false, match: 0, reason: 'Checkbox did not toggle' };
 }
 
 async function fillCheckboxGroup(f: Field, d: Desired): Promise<WidgetResult> {

@@ -269,6 +269,15 @@ export function clickTarget(input: HTMLElement): HTMLElement {
   if (isVisible(input)) return input;
   const label = (input as HTMLInputElement).labels?.[0];
   if (label && isVisible(label)) return label;
+  // Labelled by a drawn box (Oracle: <span class="…checkbox__button" data-bind="click: toggle">):
+  // the box takes the click, not the text next to it.
+  const by = (input.getAttribute('aria-labelledby') ?? '').split(/\s+/).map((id) => document.getElementById(id)).find((e) => e && isVisible(e));
+  if (by) {
+    const box = Array.from(by.querySelectorAll<HTMLElement>('[role="checkbox"], [role="radio"], [class*="button" i], [class*="box" i], [class*="toggle" i], [class*="indicator" i]')).find(
+      (e) => isVisible(e) && !e.closest('a'),
+    );
+    return box ?? by;
+  }
   const host = shadowHost(input);
   if (host && isVisible(host)) return host;
   return input.parentElement && isVisible(input.parentElement) ? input.parentElement : input;
@@ -395,7 +404,8 @@ export function scanFields(opts: ScanOptions = {}): Field[] {
   }
 
   for (const group of checkboxesByGroup.values()) {
-    const visible = group.filter((c) => isVisible(c) || (c.labels?.[0] && isVisible(c.labels[0])));
+    // A hidden checkbox counts when something visible stands in for it (its label, a drawn box).
+    const visible = group.filter((c) => isVisible(c) || clickTarget(c) !== c);
     if (!visible.length) continue;
     const first = visible[0];
     if (visible.length === 1) {
