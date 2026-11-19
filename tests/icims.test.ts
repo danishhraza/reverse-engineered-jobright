@@ -155,3 +155,40 @@ describe('iCIMS email step', () => {
     expect((document.getElementById('phoneNumber') as HTMLInputElement).value).not.toBe('');
   }, 30000);
 });
+
+describe('iCIMS voluntary information (EEO) page', () => {
+  // Plain <select>s that iCIMS marks role="combobox" and points at a listbox that never exists.
+  const select = (name: string, options: string[]) => `<div class="iCIMS_TableRow">
+    <label id="label_CandProfileFields.${name}" for="CandProfileFields.${name}">${name}</label><span class="Field_Required"><span class="Field_RequiredStar">* </span></span>
+    <select id="CandProfileFields.${name}" name="CandProfileFields.${name}" class="iCIMS_Forms_EeoDropDown form-control" icimsdropdown-enabled="0" aria-labelledby="label_CandProfileFields.${name}" aria-required="true"
+      role="combobox" aria-expanded="false" aria-controls="CandProfileFields.${name}_listbox">
+      <option legacy="true" value="">— Make a Selection —</option>${options.map((o) => `<option value="${o}">${o}</option>`).join('')}</select></div>`;
+
+  beforeEach(() => {
+    document.body.innerHTML = `<form><h2 class="iCIMS_SubHeader">Voluntary Information</h2>
+      ${select('Gender', ['Male', 'Female', 'Opt Out'])}
+      ${select('Race', ['Hispanic or Latino', 'American Indian or Alaska Native (Not Hispanic or Latino)', 'Asian (Not Hispanic or Latino)', 'White (Not Hispanic or Latino)', 'Opt Out'])}
+      ${select('Nationality', ['American', 'Arab', 'Austrian', 'Belgian', 'Canadian'])}
+      <input type="submit" value="Submit" class="iCIMS_PrimaryButton"></form>`;
+  });
+
+  it('treats them as ordinary dropdowns and answers gender, race and nationality', async () => {
+    const p = exampleProfile('swe');
+    p.eeo.gender = 'Male';
+    p.eeo.ethnicity = 'Asian';
+    await run({ ...base, profile: p, autoAdvance: false, autopilot: true, agreeToTerms: true });
+    const val = (n: string) => (document.getElementById(`CandProfileFields.${n}`) as HTMLSelectElement).value;
+    expect([val('Gender'), val('Race'), val('Nationality')]).toEqual(['Male', 'Asian (Not Hispanic or Latino)', 'American']);
+    expect(scanFields().map((f) => f.kind)).toEqual(['select', 'select', 'select']);
+  }, 30000);
+});
+
+describe('iCIMS "Submit Profile"', () => {
+  it('is the way to the next page, not the final submit', async () => {
+    const { genericNext, submitButton } = await import('../src/engine/nav');
+    document.body.innerHTML = `<form><label for="fn">First Name</label><input id="fn">
+      <input type="submit" id="cp_form_submit_i" class="iCIMS_PrimaryButton" name="profileButton" value="Submit Profile"></form>`;
+    expect(genericNext()?.id).toBe('cp_form_submit_i');
+    expect(submitButton()).toBeNull();
+  });
+});

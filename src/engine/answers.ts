@@ -51,7 +51,7 @@ const RULES: Rule[] = [
   { key: 'pronouns', label: /\bpronouns?\b/ },
   { key: 'sponsorship', label: /sponsor/ },
   { key: 'workAuthorized', label: /(legally )?(authori[sz]ed|eligible|permitted) to work|work (authori[sz]ation|permit)|right to work|legal right to/ },
-  { key: 'citizen', label: /\bcitizen(ship)?\b|\bu\.? ?s\.? worker\b|permanent resident|green card/ },
+  { key: 'citizen', label: /\bcitizen(ship)?\b|\bnationality\b|\bu\.? ?s\.? worker\b|permanent resident|green card/ },
   { key: 'over18', label: /18 years|over 18|at least 18|age of 18|legal (working )?age/ },
   // About you, not your family ("Do you have relatives currently employed by…" is a different question).
   { key: 'previouslyEmployed', label: /(previously|ever|formerly|currently) (been )?(employed|worked) (by|for|at|with)|former employee|worked (for|at) .* before/, not: /relative|family|friend|spouse|partner|household|know anyone|related to/ },
@@ -137,6 +137,16 @@ const COUNTRY_ALTS: Record<string, string[]> = {
   'United States': ['United States of America', 'USA', 'US', 'U.S.', 'U.S.A.', 'America'],
   'United Kingdom': ['UK', 'Great Britain', 'England'],
   Canada: ['CA'],
+};
+
+/** "Nationality" lists say "American", not "United States". */
+const DEMONYMS: Record<string, string> = {
+  'United States': 'American',
+  Canada: 'Canadian',
+  'United Kingdom': 'British',
+  India: 'Indian',
+  Pakistan: 'Pakistani',
+  Mexico: 'Mexican',
 };
 
 // Countries a work-authorization question may name. If one is named that the
@@ -360,7 +370,10 @@ export function resolve(c: Classification, p: Profile, field: Field): Resolution
       if (field.kind === 'text' || ((field.kind === 'combobox' || field.kind === 'select') && !asksYesNo(field, label))) {
         // "Country of citizenship"
         if (!auth.citizen) return { flag: 'Citizenship country not in profile' };
-        return t(per.country ?? 'United States', COUNTRY_ALTS[per.country ?? 'United States']);
+        const country = per.country ?? 'United States';
+        const demonym = DEMONYMS[country];
+        if (/nationalit/.test(lnorm) && demonym) return t(demonym, [country, ...(COUNTRY_ALTS[country] ?? [])]);
+        return t(country, [...(COUNTRY_ALTS[country] ?? []), ...(demonym ? [demonym] : [])]);
       }
       return auth.citizen === undefined ? { flag: 'Citizenship not set in profile' } : { desired: yes(auth.citizen) };
     }
