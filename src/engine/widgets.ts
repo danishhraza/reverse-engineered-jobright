@@ -328,12 +328,14 @@ async function fillCombobox(f: Field, d: Desired, overwrite: boolean): Promise<W
   if (before && !overwrite) return { ok: true, value: before, match: 1, skipped: true, reason: 'Already selected' };
   if (before && displayMatches(before, d, d.text)) return { ok: true, value: before, match: 0.95 };
 
-  const typable = trigger.tagName === 'INPUT' && !(trigger as HTMLInputElement).readOnly ? (trigger as HTMLInputElement) : null;
+  let typable = trigger.tagName === 'INPUT' && !(trigger as HTMLInputElement).readOnly ? (trigger as HTMLInputElement) : null;
   // First just open it and read the whole list: most dropdowns are short lists in their own
   // wording, so pick from what's there. Only search-as-you-type boxes whose list starts empty
   // (or is too long to show everything) get typed queries: the answer, a shorter form, an alternate.
   // Plain dropdowns: open twice (the first open sometimes only focuses).
-  const queries = typable ? ['', ...queriesFor(d)] : ['', ''];
+  let queries = typable ? ['', ...queriesFor(d)] : ['', ''];
+  // A search box inside the opened list (iCIMS "— Type to Search —", address lookups).
+  let popupSearch: HTMLInputElement | null = null;
   let triedEnter = false;
   let best: { label: string; score: number } | null = null;
   const optionsNow = () => {
@@ -349,13 +351,31 @@ async function fillCombobox(f: Field, d: Desired, overwrite: boolean): Promise<W
     const query = queries[attempt];
     if (attempt) status(`${fieldName(f)}: no match in the list yet, searching ${query ? `"${query}"` : 'again'} (${attempt + 1} of ${queries.length})…`);
     realClick(trigger);
+    // Some lists open and close on the same click: make sure the search box is showing.
+    if (popupSearch && !isVisible(popupSearch)) {
+      await sleep(150);
+      if (!isVisible(popupSearch)) realClick(trigger);
+    }
     if (typable) typeText(typable, query);
 
     let options = await waitFor(optionsNow, { timeout: query ? 2500 : 1200 });
+    if (query && popupSearch) {
+      // Lookups (addresses) fetch results as you type: let them arrive.
+      await waitForSettle(500, 4000);
+      options = optionsNow();
+    }
     if (!options && !query) {
       // Unfocused window: react-select-style lists open on focus, which never arrives; the down arrow opens them.
       pressKey(trigger, 'ArrowDown');
       options = await waitFor(optionsNow, { timeout: 1500 });
+    }
+    if (!typable && attempt === 0) {
+      // Opened, and the list has its own search box: search there if the answer isn't listed.
+      popupSearch = findPopupSearch(trigger);
+      if (popupSearch) {
+        typable = popupSearch;
+        queries = ['', ...queriesFor(d)];
+      }
     }
     if (!options && typable && query && !triedEnter) {
       // Workday-style prompts only search on Enter.
@@ -410,6 +430,23 @@ async function fillCombobox(f: Field, d: Desired, overwrite: boolean): Promise<W
   return best
     ? { ok: false, match: best.score, value: best.label, reason: `Closest option "${best.label}" is a weak match` }
     : { ok: false, match: 0, reason: 'Dropdown options never appeared' };
+}
+
+/** The search box inside an opened dropdown: in the list it controls, or right next to it. */
+function findPopupSearch(trigger: HTMLElement): HTMLInputElement | null {
+  const ids = [trigger.getAttribute('aria-controls'), trigger.getAttribute('aria-owns')].join(' ').split(/\s+/).filter(Boolean);
+  const scopes = [
+    ...ids.map((id) => document.getElementById(id)),
+    trigger.nextElementSibling,
+    trigger.parentElement,
+  ].filter((x): x is HTMLElement => !!x);
+  for (const s of scopes) {
+    const box = Array.from(s.querySelectorAll<HTMLInputElement>('input[type="text"], input[type="search"], input:not([type])')).find(
+      (i) => i !== trigger && isVisible(i) && !i.readOnly,
+    );
+    if (box) return box;
+  }
+  return null;
 }
 
 function closeDropdown(trigger: HTMLElement): void {
