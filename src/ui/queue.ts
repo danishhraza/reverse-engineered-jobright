@@ -10,6 +10,23 @@ const msgEl = $('msg');
 let filter: JobStatus | 'all' | 'done' = 'all';
 const open = new Set<string>(); // jobs with their log expanded
 const openAi = new Set<string>(); // jobs with their AI log expanded
+const openFill = new Set<string>(); // jobs with their fill log expanded
+
+/** Every page fill on a job: each field, what went in, and why. */
+function fillTable(j: QueueJob): string {
+  return (j.fillLog ?? [])
+    .map(
+      (e) => `<div class="muted" style="margin-top:8px;font-size:12px">${new Date(e.at).toTimeString().slice(0, 8)} · page ${e.page} · ${esc(e.message ?? '')}${
+        e.stop ? ` · stop: ${esc(e.stop)}` : ''
+      }<br><span style="font-size:11px">${esc(e.url.slice(0, 140))}</span></div>
+      <table class="ailog"><thead><tr><th>Field</th><th>Result</th><th>Value</th><th>Why</th></tr></thead><tbody>${e.fields
+        .map(
+          (f) => `<tr><td>${esc(f.label)}${f.key ? ` <span class="muted">(${esc(f.key)})</span>` : ''}</td><td><span class="pill ${f.status === 'filled' ? 'applied' : f.status === 'flagged' ? 'needs-you' : f.status}">${esc(f.status)}</span></td><td>${esc(f.value ?? '')}</td><td class="muted">${esc(f.reason ?? '')}</td></tr>`,
+        )
+        .join('')}</tbody></table>`,
+    )
+    .join('');
+}
 
 /** Every AI call on a job: what was asked (with the options), what it answered, and what was done with it. */
 function aiTable(j: QueueJob): string {
@@ -176,7 +193,35 @@ function row(j: QueueJob): HTMLTableRowElement {
     why.appendChild(link);
     if (openAi.has(j.id)) why.insertAdjacentHTML('beforeend', aiTable(j));
   }
+  if (j.fillLog?.length) {
+    const why = tr.querySelector('.why')!;
+    const link = document.createElement('a');
+    link.href = '#';
+    link.textContent = openFill.has(j.id) ? ' hide fill log' : ` fill log (${j.fillLog.length})`;
+    link.addEventListener('click', (e) => {
+      e.preventDefault();
+      if (openFill.has(j.id)) openFill.delete(j.id);
+      else openFill.add(j.id);
+      render();
+    });
+    why.appendChild(link);
+    if (openFill.has(j.id)) why.insertAdjacentHTML('beforeend', fillTable(j));
+  }
   const acts = tr.querySelector('.acts')!;
+  // Everything about this job in one file, for a bug report.
+  const dl = document.createElement('button');
+  dl.textContent = 'Download log';
+  dl.title = 'Step log, fill log and AI log for this job, as one JSON file';
+  dl.addEventListener('click', () => {
+    const { url, company, title, profile, status, reason, resumeUrl, attempts, log, fillLog, aiLog, ai } = j;
+    const blob = new Blob([JSON.stringify({ url, company, title, profile, status, reason, resumeUrl, attempts, ai, log, fillLog, aiLog }, null, 2)], { type: 'application/json' });
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = `autopilot-log-${host(j.url)}-${today()}.json`;
+    a.click();
+    setTimeout(() => URL.revokeObjectURL(a.href), 5000);
+  });
+  acts.appendChild(dl);
   for (const [action, text, cls] of ACTIONS[j.status]) {
     const b = document.createElement('button');
     b.textContent = text;

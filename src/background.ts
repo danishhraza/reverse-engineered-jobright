@@ -5,7 +5,7 @@ import type { AiQuestion } from './engine/fill';
 import { norm } from './engine/match';
 import { askGuide, askModel } from './llm/openrouter';
 import { getAiAnswers, getLlm, saveAiAnswer } from './queue/store';
-import { aiDecided, noteOnJob, onAlarm, onPageLoaded, onReadyResult, onStepResult, recordAi, onTabCreated, onTabRemoved, pauseRunner, queueAction, recover, startRunner, type QueueAction } from './queue/runner';
+import { aiDecided, noteOnJob, onAlarm, recordFill, onPageLoaded, onReadyResult, onStepResult, recordAi, onTabCreated, onTabRemoved, pauseRunner, queueAction, recover, startRunner, type QueueAction } from './queue/runner';
 
 // Routes "fill this tab" to every frame and keeps the latest report per frame
 // (chrome.storage.session) so the side panel can show it when opened later.
@@ -136,7 +136,11 @@ async function closeOut(tabId: number, message: string, frameId?: number, cancel
     const m = /^report:(\d+):(\d+)$/.exec(k);
     if (!m || Number(m[1]) !== tabId || (frameId !== undefined && Number(m[2]) !== frameId)) continue;
     const r = v as FillReport;
-    if (!r.done) await pushReport(tabId, Number(m[2]), { ...r, done: true, current: undefined, cancelled, message });
+    if (!r.done) {
+      await pushReport(tabId, Number(m[2]), { ...r, done: true, current: undefined, cancelled, message });
+      // A fill cut short by a reload still goes in the job's fill log (what got filled before it).
+      if (r.fields.length) await recordFill(tabId, { ...r, done: true, message });
+    }
   }
 }
 
@@ -187,6 +191,8 @@ chrome.runtime.onMessage.addListener((msg, sender, reply) => {
     if (!report.current || report.done) chrome.storage.session.set({ [`report:${sender.tab.id}:${sender.frameId ?? 0}`]: report });
     // The fill finished without reloading the page; forget any pending "advancing".
     if (report.done) chrome.storage.session.remove(advKey(sender.tab.id));
+    // Autopilot tabs: keep every finished page fill in the job's fill log.
+    if (report.done && report.fields.length) void recordFill(sender.tab.id, report);
     // The floating button lives in the top frame, even when an iframe is filling.
     chrome.tabs.sendMessage(sender.tab.id, { type: 'fabReport', report }, { frameId: 0 }).catch(() => {});
     return;

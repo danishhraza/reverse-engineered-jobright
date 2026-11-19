@@ -34,7 +34,8 @@ function seed() {
   const account = existsSync('profiles/account.json') ? JSON.parse(readFileSync('profiles/account.json', 'utf8')) : undefined;
   if (account) hash.update(JSON.stringify(account));
   writeFileSync('dist/seed/seed.json', JSON.stringify({ version: hash.digest('hex').slice(0, 12), profiles: 'profiles.json', resumes, account }));
-  console.log(`Seed: profiles/${file} + ${Object.keys(resumes).length} resume(s)${account ? ' + login email' : ''} -> dist/seed/`);
+  const extras = account ? ['login email', account.password && 'password', account.openrouterKey && 'OpenRouter key'].filter(Boolean).join(', ') : '';
+  console.log(`Seed: profiles/${file} + ${Object.keys(resumes).length} resume(s)${extras ? ` + ${extras}` : ''} -> dist/seed/`);
 }
 
 const options = {

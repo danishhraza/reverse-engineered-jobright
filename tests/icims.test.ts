@@ -106,6 +106,20 @@ describe('iCIMS candidate profile (resume + login + address lookup)', () => {
     });
   }
 
+  it('uploads the resume once: after the site re-parses and reloads, it fills again without re-uploading', async () => {
+    page();
+    await run({ ...base, profile: exampleProfile('swe'), resume: resume(), autoAdvance: false });
+    expect(document.getElementById('resume-name')!.textContent).toBe('alex-resume.pdf');
+    // iCIMS reloads the page with the resume parsed in (and its own guesses for the fields).
+    page();
+    (document.getElementById('fn') as HTMLInputElement).value = 'Alexander';
+    const report = await run({ ...base, profile: exampleProfile('swe'), resume: resume(), autoAdvance: false });
+    expect(document.getElementById('resume-name')!.textContent).toBe('');
+    expect(report.fields.find((f) => f.key === 'resume')).toMatchObject({ status: 'skipped', reason: expect.stringMatching(/not again/) });
+    expect((document.getElementById('fn') as HTMLInputElement).value).toBe('Alex');
+    sessionStorage.clear();
+  }, 60000);
+
   it('is the application (not a sign-up page), even with "Create a login" on it', () => {
     page();
     expect(probe()).toMatchObject({ kind: 'form' });

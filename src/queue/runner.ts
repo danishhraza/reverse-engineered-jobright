@@ -1,6 +1,7 @@
 import { sameJob } from './csv';
 import { accountCreatedOn, getAutopilot, getQueue, getRunner, locked, markAccountCreated, saveQueue, saveRunner, today } from './store';
-import { PROBE_RANK, type JobStatus, type Probe, type QueueJob, type RunnerState, type StepOutcome } from './types';
+import { PROBE_RANK, type FillLogEntry, type JobStatus, type Probe, type QueueJob, type RunnerState, type StepOutcome } from './types';
+import type { FillReport } from '../types';
 
 // Autopilot, background side. One job at a time, each in its own tab in a
 // separate "Autopilot" window:
@@ -461,6 +462,25 @@ export function aiDecided(tabId: number, question: string, decision: string): Pr
     const entry = j?.aiLog?.filter((e) => e.question === question && !e.decision).at(-1);
     if (!j || !entry) return;
     entry.decision = decision;
+    await saveQueue(q);
+  });
+}
+
+/** A finished page fill in a job's tab: keep every field's result for the job's fill log. */
+export function recordFill(tabId: number, r: FillReport): Promise<void> {
+  return locked(async () => {
+    const q = await getQueue();
+    const j = q.find((x) => x.tabId === tabId);
+    if (!j) return;
+    const entry: FillLogEntry = {
+      at: now(),
+      url: r.url,
+      page: r.page,
+      message: r.message,
+      stop: r.stop,
+      fields: r.fields.slice(0, 150).map((f) => ({ label: f.label.slice(0, 160), key: f.key, status: f.status, value: f.value?.slice(0, 160), reason: f.reason?.slice(0, 200) })),
+    };
+    j.fillLog = [...(j.fillLog ?? []), entry].slice(-40);
     await saveQueue(q);
   });
 }

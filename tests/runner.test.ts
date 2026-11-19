@@ -327,6 +327,31 @@ describe('a job, start to finish', () => {
     ]);
   });
 
+  it('keeps a fill log of every page: each field, its value and why', async () => {
+    const tab = await start();
+    await runner.recordFill(tab, {
+      url: 'https://x.icims.com/jobs/1/candidate',
+      ats: 'Generic',
+      page: 1,
+      done: true,
+      message: 'Filled 2, 1 need you',
+      fields: [
+        { id: 'a', label: 'Address', key: 'address1', status: 'filled', confidence: 0.9, value: '100 Example Road' },
+        { id: 'b', label: 'Password', key: 'password', status: 'filled', confidence: 0.95, value: '••••••••' },
+        { id: 'c', label: 'State/Province', key: 'state', status: 'flagged', confidence: 0, reason: 'Dropdown options never appeared' },
+      ],
+    });
+    expect(job().fillLog).toHaveLength(1);
+    expect(job().fillLog![0]).toMatchObject({ page: 1, message: 'Filled 2, 1 need you' });
+    expect(job().fillLog![0].fields.map((f) => f.status)).toEqual(['filled', 'filled', 'flagged']);
+    expect(JSON.stringify(job().fillLog)).not.toContain('pa55-word!');
+  });
+
+  it('reads an old model setting without the stray "[1m]"', async () => {
+    local.llm = { model: 'anthropic/claude-haiku-5.5[1m]' };
+    expect((await store.getLlm()).model).toBe('anthropic/claude-haiku-5.5');
+  });
+
   it('Pause puts the running job back at the front, keeping its tab', async () => {
     const tab = await start();
     await runner.pauseRunner('Paused by you');

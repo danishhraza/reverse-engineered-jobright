@@ -44,7 +44,9 @@ export async function setAutopilot(patch: Partial<AutopilotSettings>): Promise<A
 }
 
 export async function getLlm(): Promise<LlmSettings> {
-  return { ...DEFAULT_LLM, ...(await get<Partial<LlmSettings>>('llm', {})) };
+  const s = { ...DEFAULT_LLM, ...(await get<Partial<LlmSettings>>('llm', {})) };
+  // An earlier default carried a "[1m]" suffix that isn't part of the OpenRouter model id.
+  return { ...s, model: s.model.replace(/\[1m\]$/, '') };
 }
 export async function setLlm(patch: Partial<LlmSettings>): Promise<LlmSettings> {
   const next = { ...(await getLlm()), ...patch };

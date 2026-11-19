@@ -41,8 +41,19 @@ export interface QueueJob {
   ai?: { calls: number; tokensIn: number; tokensOut: number; cost: number };
   /** Every AI call in full: what was asked, what it answered, and what was done with it. */
   aiLog?: AiLogEntry[];
+  /** Every page fill: each field, what went in, and why (passwords masked). */
+  fillLog?: FillLogEntry[];
   /** Last few things the runner did, newest last. */
   log: string[];
+}
+
+export interface FillLogEntry {
+  at: number;
+  url: string;
+  page: number;
+  message?: string;
+  stop?: string;
+  fields: { label: string; key?: string; status: string; value?: string; reason?: string }[];
 }
 
 export interface AiLogEntry {
@@ -97,7 +108,7 @@ export interface LlmSettings {
 
 export const DEFAULT_LLM: LlmSettings = {
   enabled: true,
-  model: 'anthropic/claude-haiku-5.5[1m]',
+  model: 'anthropic/claude-haiku-5.5',
   standing: [
     'I do not have any relatives, close friends or household members working at the company or its clients.',
     'I have never worked for the company, its subsidiaries or its clients before, and I am not a current employee there.',
