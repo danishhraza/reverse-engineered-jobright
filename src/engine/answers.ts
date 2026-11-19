@@ -442,6 +442,9 @@ export function resolve(c: Classification, p: Profile, field: Field): Resolution
     }
     case 'startAvailability': {
       // A date box (or its Day / Month / Year parts) wants a date, worked out from "Within 2 months…".
+      // Options that are ranges ("Within two weeks…", "More than 30 days, but within 60 days…"): the one your answer falls in.
+      const inRange = pickDuration(p.preferences.startAvailability, optionTexts(field));
+      if (inRange) return t(inRange);
       const part = datePart(field, lnorm);
       if (!part) return t(p.preferences.startAvailability);
       const d = startDate(p.preferences.startAvailability);
@@ -539,6 +542,54 @@ export function startDate(text: string | undefined, from = new Date()): Date {
   else if (m[2] === 'week') d.setDate(d.getDate() + 7 * n);
   else d.setMonth(d.getMonth() + n);
   return d;
+}
+
+const NUMBER_WORDS: Record<string, number> = {
+  one: 1, two: 2, three: 3, four: 4, five: 5, six: 6, seven: 7, eight: 8, nine: 9, ten: 10, twelve: 12, fourteen: 14,
+  fifteen: 15, thirty: 30, sixty: 60, ninety: 90, a: 1, an: 1,
+};
+const QUANTITY = /\b(\d+|one|two|three|four|five|six|seven|eight|nine|ten|twelve|fourteen|fifteen|thirty|sixty|ninety|an?)[\s-]*(day|week|month)s?\b/gi;
+
+/** Every "2 weeks" / "60 days" / "three months" in a text, in days. */
+function durations(text: string): number[] {
+  return Array.from(text.toLowerCase().matchAll(QUANTITY)).map((m) => {
+    const n = Number(m[1]) || NUMBER_WORDS[m[1]] || 0;
+    return n * (m[2] === 'day' ? 1 : m[2] === 'week' ? 7 : 30);
+  });
+}
+
+/** How many days until you could start: "Within 2 months after offer acceptance" -> 60, "Immediately" -> 0. */
+export function startInDays(text: string | undefined): number | null {
+  const t = (text ?? '').toLowerCase();
+  if (/immediate|asap|right away|\bnow\b/.test(t)) return 0;
+  const d = durations(t);
+  return d.length ? Math.max(...d) : null;
+}
+
+/**
+ * The option whose range holds your start: "Within two weeks" = up to 14 days,
+ * "More than 30 days, but within 60 days" = 31-60, "More than 60 days" = 61+.
+ * null when the options aren't ranges (or none fits).
+ */
+export function pickDuration(answer: string | undefined, options: string[]): string | null {
+  const days = startInDays(answer);
+  if (days === null) return null;
+  let best: string | null = null;
+  let parsed = 0;
+  for (const o of options) {
+    const lo = o.toLowerCase();
+    let range: [number, number] | null = null;
+    if (/immediate|asap|right away/.test(lo) && !durations(lo).length) range = [0, 0];
+    else {
+      const d = durations(lo);
+      if (d.length >= 2) range = [Math.min(...d) + 1, Math.max(...d)];
+      else if (d.length === 1) range = /more than|over|after|longer than|greater than|beyond|\+|or more/.test(lo) ? [d[0] + 1, Infinity] : [0, d[0]];
+    }
+    if (!range) continue;
+    parsed++;
+    if (!best && days >= range[0] && days <= range[1]) best = o;
+  }
+  return parsed >= 2 ? best : null;
 }
 
 function ethnicityAlts(e: string): string[] {

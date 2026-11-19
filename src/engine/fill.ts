@@ -193,8 +193,8 @@ async function fillOne(f: Field, opts: PageFillOptions): Promise<FieldReport | n
   if (c.key === 'consent' && opts.agreeToTerms && (f.kind === 'checkbox' || f.kind === 'checkboxGroup')) {
     return applyDesired(f, { text: 'Yes', bool: true }, c.score, c.key, opts, 'Agreed (autopilot)');
   }
-  // "Title" as a dropdown: Mr. / Ms. or a job title? Only its options tell.
-  if (c.key === 'currentTitle' && f.kind === 'combobox' && !f.peeked && !currentValue(f)) f.peeked = await peekOptions(f);
+  // Answers that depend on the options: "Title" (Mr. / Ms. or a job title?), start date (which range?).
+  if ((c.key === 'currentTitle' || c.key === 'startAvailability') && f.kind === 'combobox' && !f.peeked && !currentValue(f)) f.peeked = await peekOptions(f);
   const res = resolve(c, opts.profile, f);
   if ('skip' in res) {
     if (c.key === 'resume') return null;
@@ -365,6 +365,14 @@ function uploadedHere(): string | null {
   }
 }
 
+function forgetUpload(): void {
+  try {
+    sessionStorage.removeItem(uploadKey());
+  } catch {
+    // storage blocked: nothing was remembered
+  }
+}
+
 function rememberUpload(name: string): void {
   try {
     sessionStorage.setItem(uploadKey(), JSON.stringify({ name, at: Date.now() }));
@@ -386,22 +394,36 @@ async function uploadTo(target: Field, opts: PageFillOptions): Promise<FieldRepo
   }
 
   status(`Uploading ${opts.resume.name} — waiting for the site to process it…`);
+  // Remembered before waiting: a site that reloads while parsing (iCIMS) ends this script mid-wait.
   rememberUpload(opts.resume.name);
+  let ok = await attachAndWait(input, opts);
+  if (!ok) {
+    // Not taken (Greenhouse re-renders its upload box, and a failed upload puts "Attach" back): once more,
+    // into whichever resume input is on the page now.
+    const again = scanFields().find((f) => f.kind === 'file' && f.el.isConnected && /resume|\bcv\b/i.test(f.label) && !/cover/i.test(f.label));
+    // Only when the box was reset (a new input, or ours emptied); one that still holds the file may just not show names.
+    const reset = again && (again.el !== input || !(again.el as HTMLInputElement).files?.length);
+    if (again && reset && !alreadyUploadedText(again.el as HTMLInputElement, opts.resume.name)) {
+      status(`${opts.resume.name} didn't show up as attached — trying once more…`);
+      ok = await attachAndWait(again.el as HTMLInputElement, opts);
+    }
+  }
+  // Sites that parse the resume rewrite form fields right after; let that finish.
+  await waitForSettle(800, 8000);
+  if (ok) return row(target, 'filled', 1, 'resume', undefined, opts.resume.name);
+  // Not confirmed: the next pass on this page (Continue) should try again, not skip it as "uploaded earlier".
+  forgetUpload();
+  return row(target, 'flagged', 0.5, 'resume', "Couldn't confirm the resume uploaded (the site didn't show it as attached) — attach it yourself", opts.resume.name);
+}
+
+async function attachAndWait(input: HTMLInputElement, opts: PageFillOptions): Promise<boolean> {
   const dt = new DataTransfer();
-  dt.items.add(opts.resume);
+  dt.items.add(opts.resume!);
   input.files = dt.files;
   input.dispatchEvent(new Event('input', { bubbles: true }));
   input.dispatchEvent(new Event('change', { bubbles: true }));
   if (!(await confirmUploadDialog(input))) await pressUploadButton(input, opts);
-
-  const ok = opts.adapter.waitResumeProcessed
-    ? await opts.adapter.waitResumeProcessed(input, opts.resume)
-    : await defaultWaitUploaded(input, opts.resume);
-  // Sites that parse the resume rewrite form fields right after; let that finish.
-  await waitForSettle(800, 8000);
-  return ok
-    ? row(target, 'filled', 1, 'resume', undefined, opts.resume.name)
-    : row(target, 'flagged', 0.5, 'resume', "Attached, but couldn't confirm the upload finished — check it", opts.resume.name);
+  return opts.adapter.waitResumeProcessed ? opts.adapter.waitResumeProcessed(input, opts.resume!) : defaultWaitUploaded(input, opts.resume!);
 }
 
 function alreadyUploadedText(input: HTMLInputElement, name: string): boolean {
@@ -409,11 +431,31 @@ function alreadyUploadedText(input: HTMLInputElement, name: string): boolean {
   return (scope.textContent ?? '').includes(name);
 }
 
+/** A site showing upload progress (Greenhouse's bar while it sends the file). */
+function uploadInProgress(): boolean {
+  return Array.from(document.querySelectorAll<HTMLElement>('[role="progressbar"], progress, [class*="progress" i]')).some((p) => !p.closest('.rej-ui') && isVisible(p));
+}
+
 async function defaultWaitUploaded(input: HTMLInputElement, file: File): Promise<boolean> {
-  const scope = input.closest('form') ?? document.body;
+  // Greenhouse swaps the upload box (and its input) for a progress bar: look in the page then.
+  const scope = (input.isConnected && input.closest('form')) || document.body;
   const base = file.name.replace(/\.[^.]+$/, '');
-  const seen = await waitFor(() => (scope.textContent ?? '').includes(base) || /upload(ed)? successful|successfully uploaded/i.test(scope.textContent ?? ''), { timeout: 20000, interval: 250 });
-  return !!seen;
+  // Our input replaced by a fresh, empty one and nothing uploading: the site gave up (Greenhouse puts "Attach" back).
+  const reset = () => {
+    if (input.isConnected || !input.id || uploadInProgress()) return false;
+    const now = document.getElementById(input.id);
+    return now instanceof HTMLInputElement && now !== input && !now.files?.length;
+  };
+  const seen = await waitFor(
+    () =>
+      (scope.textContent ?? '').includes(base) || /upload(ed)? successful|successfully uploaded/i.test(scope.textContent ?? '')
+        ? 'ok'
+        : reset()
+          ? 'reset'
+          : null,
+    { timeout: 30000, interval: 250 },
+  );
+  return seen === 'ok';
 }
 
 // Some ATSs (SuccessFactors, iCIMS) only create the file input after you click
@@ -484,8 +526,11 @@ async function confirmUploadDialog(input: HTMLInputElement): Promise<boolean> {
  */
 async function pressUploadButton(input: HTMLInputElement, opts: PageFillOptions): Promise<void> {
   const base = opts.resume!.name.replace(/\.[^.]+$/, '');
-  const scope = input.closest('form') ?? document.body;
+  const scope = (input.isConnected && input.closest('form')) || document.body;
   if (await waitFor(() => (scope.textContent ?? '').includes(base), { timeout: 1500 })) return;
+  // The site took the file and is sending it (its box re-rendered, or a progress bar): pressing
+  // "Attach" now would only open the picker again, or start over.
+  if (!input.isConnected || uploadInProgress()) return;
   let btn: HTMLElement | undefined;
   for (let n = input.parentElement, i = 0; n && i < 4 && !btn; n = n.parentElement, i++) {
     btn = Array.from(n.querySelectorAll<HTMLElement>('button, a, [role="button"], input[type="button"], input[type="submit"]')).find(
