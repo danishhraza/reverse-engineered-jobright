@@ -1,8 +1,10 @@
 import { validateStore } from './merge';
 import { getAccount, getSettings, setAccount, setResume, setSettings, setStore } from './storage';
+import { setLlm } from '../queue/store';
 
-// Imports the profile, resumes and login email bundled at build time
-// (dist/seed/, see scripts/build.mjs), so you don't attach them by hand.
+// Imports the profile, resumes, job-site login and OpenRouter key bundled at
+// build time (dist/seed/, from gitignored files; see scripts/build.mjs), so
+// you don't attach or type them by hand.
 // Runs on install and every reload; does nothing when the bundle hasn't
 // changed since the last import. The profile JSON on disk wins over edits
 // made in Options.
@@ -12,7 +14,7 @@ interface Seed {
   profiles: string;
   /** profile id -> original file name */
   resumes: Record<string, string>;
-  account?: { email?: string; username?: string };
+  account?: { email?: string; username?: string; password?: string; openrouterKey?: string; model?: string };
 }
 
 const url = (p: string) => chrome.runtime.getURL(`seed/${p}`);
@@ -45,10 +47,23 @@ export async function importSeed(): Promise<void> {
     const buf = await (await fetch(url(`${id}.pdf`))).arrayBuffer();
     await setResume(id, { name, type: 'application/pdf', dataUrl: toDataUrl(buf, 'application/pdf') });
   }
-  if (seed.account?.email) {
+  // profiles/account.json is the source of truth for whatever it sets (like the profile JSON):
+  // login email / user name / password, and the OpenRouter key and model.
+  const acc = seed.account;
+  if (acc) {
     const a = await getAccount();
-    // Only fill in what's missing; a password is never bundled.
-    if (!a.email) await setAccount({ ...a, email: seed.account.email, username: a.username ?? seed.account.username });
+    await setAccount({
+      ...a,
+      email: acc.email || a.email,
+      username: acc.username || a.username,
+      password: acc.password || a.password,
+    });
+    if (acc.openrouterKey || acc.model) {
+      await setLlm({
+        ...(acc.openrouterKey ? { apiKey: acc.openrouterKey, enabled: true } : {}),
+        ...(acc.model ? { model: acc.model } : {}),
+      });
+    }
   }
   await chrome.storage.local.set({ seedVersion: seed.version });
 }

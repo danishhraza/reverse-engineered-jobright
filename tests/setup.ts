@@ -24,3 +24,12 @@ if (typeof (globalThis as { DataTransfer?: unknown }).DataTransfer === 'undefine
     },
   });
 }
+
+// Each test is a different application: forget per-page memory (e.g. "resume already uploaded here").
+beforeEach(() => {
+  try {
+    sessionStorage.clear();
+  } catch {
+    // no storage in this environment
+  }
+});

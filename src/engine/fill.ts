@@ -28,6 +28,8 @@ export interface PageFillOptions {
   agreeToTerms?: boolean;
   /** Picking up after you (Continue): fill only required fields that are still empty. */
   requiredOnly?: boolean;
+  /** Upload the resume even if it went in earlier on this application (you clicked the box). */
+  forceUpload?: boolean;
 }
 
 export interface AiQuestion {
@@ -151,7 +153,7 @@ export async function fillSingle(f: Field, opts: PageFillOptions): Promise<Field
   const o = { ...opts, overwrite: true };
   if (f.kind === 'file') {
     if (/cover/i.test(`${f.label} ${f.hints}`)) return row(f, 'flagged', 0, 'coverLetter', 'Cover letter — attach it yourself');
-    return uploadTo(f, o);
+    return uploadTo(f, { ...o, forceUpload: true }); // you clicked it: upload even if it went in before
   }
   if (opts.adapter.fillOne) {
     const ctx: FillContext = { profile: opts.profile, resume: opts.resume, overwrite: true, handled: new Set(), extra: [] };
@@ -338,14 +340,43 @@ async function chooseUploadOption(fields: Field[], opts: PageFillOptions): Promi
   return false;
 }
 
+/** Per tab and application page (ignoring query strings like ?uploadResume=1): which resume went in. */
+const uploadKey = () => `rej-resume:${location.host}${location.pathname}`;
+
+/** Long enough for a parse-and-reload; short enough that another job on the same page path uploads its own. */
+const UPLOAD_MEMORY_MS = 30 * 60000;
+
+function uploadedHere(): string | null {
+  try {
+    const v = JSON.parse(sessionStorage.getItem(uploadKey()) ?? 'null') as { name: string; at: number } | null;
+    return v && Date.now() - v.at < UPLOAD_MEMORY_MS ? v.name : null;
+  } catch {
+    return null;
+  }
+}
+
+function rememberUpload(name: string): void {
+  try {
+    sessionStorage.setItem(uploadKey(), JSON.stringify({ name, at: Date.now() }));
+  } catch {
+    // storage blocked: worst case it uploads again
+  }
+}
+
 async function uploadTo(target: Field, opts: PageFillOptions): Promise<FieldReport> {
   if (!/resume|\bcv\b/i.test(target.label)) target = { ...target, label: 'Resume' };
   const input = target.el as HTMLInputElement;
   if (!opts.resume) return row(target, 'flagged', 0, 'resume', 'No resume file saved for this profile — add it in Options');
   if (input.files?.length && input.files[0].name === opts.resume.name) return row(target, 'filled', 1, 'resume', 'Already attached', opts.resume.name);
   if (alreadyUploadedText(input, opts.resume.name) && !opts.overwrite) return row(target, 'skipped', 1, 'resume', 'Resume already uploaded', opts.resume.name);
+  // Once per application: sites like iCIMS parse the resume, reload, and rewrite the whole form
+  // from it — uploading again after that reload wipes everything filled since.
+  if (!opts.forceUpload && uploadedHere() === opts.resume.name) {
+    return row(target, 'skipped', 1, 'resume', 'Uploaded earlier on this application — not again (it would re-parse and overwrite the form)', opts.resume.name);
+  }
 
   status(`Uploading ${opts.resume.name} — waiting for the site to process it…`);
+  rememberUpload(opts.resume.name);
   const dt = new DataTransfer();
   dt.items.add(opts.resume);
   input.files = dt.files;

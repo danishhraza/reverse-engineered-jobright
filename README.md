@@ -38,7 +38,7 @@ npm run build
 
 After changing code: `npm run build` (or `npm run watch`), then click the reload icon on the extension card and reload the job page.
 
-**Your own profile, preloaded.** If `profiles/<you>.json` exists, the build bundles it, the resumes in `profiles/resumes/` (named as each profile's `resumeFileName`) and the email in `profiles/account.json` into `dist/seed/`, and the extension imports them on install and on every reload when they've changed. Steps 2–3 then happen by themselves. All of these files are gitignored; build with `SEED=0` for a copy without them.
+**Your own profile, preloaded.** If `profiles/<you>.json` exists, the build bundles it, the resumes in `profiles/resumes/` (named as each profile's `resumeFileName`) and the login and AI settings in `profiles/account.json` (`email`, `password`, `openrouterKey`, `model`) into `dist/seed/`, and the extension imports them on install and on every reload when they've changed. Steps 2–3 then happen by themselves. All of these files are gitignored; build with `SEED=0` for a copy without them.
 
 ## Your data
 
