@@ -48,7 +48,7 @@ export function jaccard(a: string, b: string): number {
 const DECLINE = /\b(decline|prefer not|dont wish|do not wish|not wish|choose not|rather not|not to (answer|say|disclose|self identify)|i dont want to answer|do not want to answer|wish not)\b/;
 const NOISH = /^no\b|\bnot\b|\bdont\b|\bdo not\b|\bwont\b|\bwill not\b|\bnever\b|\bam not\b|\bnone\b/;
 const YESISH = /^yes\b|^i am\b|^i do\b|^i will\b|^i have\b|^i identify\b|\bauthorized\b/;
-const PLACEHOLDER = /^(select( one| an option)?|choose( one)?|please select|search|none selected|)$/;
+const PLACEHOLDER = /^(select( one| an option)?|choose( one)?|please select|search|none selected|make a selection|pick one|)$/;
 const EMPTY_OPTION = /^(loading|no options|no results|no matches|searching)\b/;
 
 export function isPlaceholderOption(label: string): boolean {

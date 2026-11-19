@@ -612,7 +612,7 @@ function findYesNoByText(roots: ParentNode[], exclude: string, covered: Element[
   return out;
 }
 
-const PLACEHOLDER = /^(select( one)?|choose|please select|select\.{3}|--+|search|start typing|type to search)\W*$/i;
+const PLACEHOLDER = /^\W*(select( one| an option)?|choose|please select|select\.{3}|--+|search|start typing|type to search|make a selection|pick one|none selected)\W*$/i;
 
 export function comboboxDisplay(el: HTMLElement): string {
   if (el.tagName === 'INPUT') {

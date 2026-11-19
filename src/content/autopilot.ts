@@ -32,7 +32,8 @@ function captchaVisible(text: string): boolean {
     ),
   );
   const shown = frames.some((f) => {
-    if (/size=invisible/.test(f.src) || !isVisible(f)) return false;
+    // Invisible CAPTCHAs only show their "Protected by…" badge until they decide to challenge.
+    if (/size=invisible|frame=checkbox-invisible/.test(f.src) || !isVisible(f)) return false;
     const r = f.getBoundingClientRect();
     // (No layout at all means a test DOM; a real visible frame always has a size.)
     return (r.width === 0 && r.height === 0) || (r.width >= 30 && r.height >= 30);
@@ -55,11 +56,22 @@ function applicationScore(): number {
 export function probe(): Probe {
   const text = pageText();
   const sig = `${location.href}|${squash(cleanText(document.querySelector('h1, h2'))).slice(0, 80)}|${document.querySelectorAll('input, select, textarea').length}`;
+  // How much form is in this frame: the AI is shown the frame with the most when nothing else fits.
+  const inputs = Array.from(document.querySelectorAll('input:not([type="hidden"]), select, textarea, [role="combobox"]')).filter((e) => isVisible(e)).length;
+  const p = probeKind(text, sig);
+  return { ...p, inputs };
+}
+
+function probeKind(text: string, sig: string): Probe {
   if (captchaVisible(text)) return { kind: 'captcha', sig };
   const blocker = findBlocker();
   if (blocker) return { kind: 'blocker', sig: `${sig}|${blocker.label}`, detail: `${blocker.kind === 'cookie' ? 'Cookie banner' : 'Pop-up'}: "${blocker.label}"` };
   const pw = passwordBox();
-  const formy = !pw && looksLikeForm() && applicationScore() >= 2;
+  // Fields an application asks for (email, phone, name, resume…). Two are enough on their own
+  // (iCIMS starts with just Email + Phone in a frame), unless there's an Apply button here — then
+  // a small form is more likely a newsletter / talent-community sign-up.
+  const score = pw ? 0 : applicationScore();
+  const formy = !pw && (score >= 3 || (score >= 2 && (looksLikeForm() || !applyButton())));
   if (!pw && !formy && VERIFY.test(text)) return { kind: 'verify', sig, detail: squash(VERIFY.exec(text)?.[0] ?? '') };
   if (pw) return { kind: 'account', sig };
   if (formy) return { kind: 'form', sig };

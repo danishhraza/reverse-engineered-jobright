@@ -278,7 +278,10 @@ export function doStep(): Promise<void> {
     }
 
     // The AI looks at the top page unless a frame had something to show.
-    const frameId = mode === 'guide' && (kind === 'none' || kind === 'loading') ? 0 : (best?.frameId ?? 0);
+    // With nothing recognised anywhere, the AI looks at the frame holding the most form (an
+    // embedded iCIMS form), else the top page.
+    const formiest = [...probes].sort((a, b) => (b.probe.inputs ?? 0) - (a.probe.inputs ?? 0))[0];
+    const frameId = mode === 'guide' && (kind === 'none' || kind === 'loading') ? (formiest?.probe.inputs ? formiest.frameId : 0) : (best?.frameId ?? 0);
     st.step++;
     st.inFlight = { step: st.step, frameId, since: now() };
     await saveRunner(st);

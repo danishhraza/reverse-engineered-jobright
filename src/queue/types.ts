@@ -143,6 +143,8 @@ export interface Probe {
   detail?: string;
   /** Changes when the page meaningfully changes (stuck detection). */
   sig: string;
+  /** Visible form controls in this frame. */
+  inputs?: number;
 }
 
 /** Most important first: the background acts on the frame whose probe ranks highest. */
