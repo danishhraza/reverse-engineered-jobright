@@ -47,6 +47,82 @@ beforeEach(() => {
   }
 });
 
+describe('iCIMS candidate profile (resume + login + address lookup)', () => {
+  const resume = () => new File(['%PDF-1.4'], 'alex-resume.pdf', { type: 'application/pdf' });
+
+  function page(): void {
+    document.body.innerHTML = `
+      <h2>Candidate Profile</h2>
+      <form>
+        <h3>Resume</h3>
+        <label for="PortalProfileFields.Resume_File">Please upload your resume (Max size: 5 MB)*</label>
+        <input type="file" id="PortalProfileFields.Resume_File" style="display:none"><button type="button">My Computer</button>
+        <span id="resume-name"></span>
+        <h3>Create a login</h3>
+        <label for="login">Login</label><input id="login">
+        <label for="pw">Password</label><input id="pw" type="password">
+        <label for="pw2">Password (Re-enter)</label><input id="pw2" type="password">
+        <label for="fn">First Name</label><input id="fn">
+        <label for="ln">Last Name</label><input id="ln">
+        <label for="em">Email</label><input id="em" type="email">
+        <div><label for="-1_PersonProfileFields.PhoneType">Type</label>
+          <select id="-1_PersonProfileFields.PhoneType"><option value="">— Make a selection —</option><option>Home</option><option>Mobile</option><option>Work</option></select></div>
+        <div><label for="-1_PersonProfileFields.PhoneNumber">Number</label><input id="-1_PersonProfileFields.PhoneNumber"></div>
+        <div><label for="-1_PersonProfileFields.AddressType">Type</label>
+          <select id="-1_PersonProfileFields.AddressType"><option value="">— Make a selection —</option><option>Home</option><option>Work</option><option>Other</option></select></div>
+        <div class="iCIMS_InfoData"><label id="label_addr">Address*</label>
+          <a id="addr" class="dropdown-select" role="combobox" aria-expanded="false" aria-labelledby="label_addr" aria-label="Address" aria-required="true">
+            <span id="addr-text" class="dropdown-text"><span class="dropdown-placeholder">— Make a selection —</span></span></a>
+          <div id="addr-ctnr" class="dropdown-container" hidden>
+            <input type="text" class="dropdown-search" placeholder="— Type to Search —" aria-label="— Type to Search —">
+            <ul class="dropdown-results" role="listbox"><li role="option">— Enter Manually —</li></ul></div></div>
+        <div><label for="city">City</label><input id="city"></div>
+        <div><label for="zip">Zip/Postal Code</label><input id="zip"></div>
+        <button type="button">Next</button>
+      </form>`;
+    const file = document.getElementById('PortalProfileFields.Resume_File') as HTMLInputElement;
+    file.addEventListener('change', () => (document.getElementById('resume-name')!.textContent = file.files?.[0]?.name ?? ''));
+    // iCIMS dropdown: the link opens a box with its own search; results come back a moment after typing.
+    const a = document.getElementById('addr')!;
+    const box = document.getElementById('addr-ctnr')!;
+    const search = box.querySelector('input')!;
+    const ul = box.querySelector('ul')!;
+    a.addEventListener('click', () => (box.hidden = !box.hidden));
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    search.addEventListener('input', () => {
+      clearTimeout(timer);
+      timer = setTimeout(() => {
+        const hits = ['100 Main Street, Boston, MA, USA', '100 Main Street, Springfield, IL, USA', '100 Mains Road, Springfield, MO, USA'].filter((x) =>
+          x.toLowerCase().startsWith(search.value.toLowerCase().split(',')[0]),
+        );
+        ul.innerHTML = '<li role="option">— Enter Manually —</li>' + hits.map((h) => `<li role="option">${h}</li>`).join('');
+        for (const li of Array.from(ul.querySelectorAll('li'))) {
+          li.addEventListener('click', () => {
+            document.getElementById('addr-text')!.textContent = li.textContent!;
+            box.hidden = true;
+          });
+        }
+      }, 400);
+    });
+  }
+
+  it('is the application (not a sign-up page), even with "Create a login" on it', () => {
+    page();
+    expect(probe()).toMatchObject({ kind: 'form' });
+  });
+
+  it('uploads the resume, picks the address from the lookup, and fills phone and address types', async () => {
+    page();
+    const report = await run({ ...base, profile: exampleProfile('swe'), resume: resume(), autoAdvance: false });
+    expect(document.getElementById('resume-name')!.textContent).toBe('alex-resume.pdf');
+    expect(document.getElementById('addr-text')!.textContent).toBe('100 Main Street, Springfield, IL, USA');
+    expect((document.getElementById('-1_PersonProfileFields.PhoneType') as HTMLSelectElement).value).toBe('Mobile');
+    expect((document.getElementById('-1_PersonProfileFields.AddressType') as HTMLSelectElement).value).toBe('Home');
+    const number = report.fields.find((f) => f.label === 'Number');
+    expect(number?.status).toBe('filled');
+  }, 60000);
+});
+
 describe('iCIMS email step', () => {
   it('is a form, even with only two input boxes, and the hCaptcha badge is not a CAPTCHA', () => {
     expect(probe()).toMatchObject({ kind: 'form' });

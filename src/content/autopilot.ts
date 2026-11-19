@@ -70,13 +70,16 @@ function probeKind(text: string, sig: string): Probe {
   // Fields an application asks for (email, phone, name, resume…). Two are enough on their own
   // (iCIMS starts with just Email + Phone in a frame), unless there's an Apply button here — then
   // a small form is more likely a newsletter / talent-community sign-up.
-  const score = pw ? 0 : applicationScore();
+  const score = applicationScore();
+  // A whole application that also creates your login (iCIMS: resume, name, address… and
+  // "Create a login"): that's the application, not a sign-up page.
+  const fullForm = !!pw && score >= 5;
   // "Start with your email" pages (Oracle Cloud): one email box and a Next button, nothing to Apply to.
   const emailGate =
     score >= 1 && !!document.querySelector('input[type="email"], input[autocomplete="email"], input[name*="email" i], input[id*="email" i]') && !!(genericNext() || disabledNext()) && !applyButton();
-  const formy = !pw && (score >= 3 || (score >= 2 && (looksLikeForm() || !applyButton())) || emailGate);
+  const formy = fullForm || (!pw && (score >= 3 || (score >= 2 && (looksLikeForm() || !applyButton())) || emailGate));
   if (!pw && !formy && VERIFY.test(text)) return { kind: 'verify', sig, detail: squash(VERIFY.exec(text)?.[0] ?? '') };
-  if (pw) return { kind: 'account', sig };
+  if (pw && !fullForm) return { kind: 'account', sig };
   if (formy) return { kind: 'form', sig };
   if (APPLIED.test(text)) return { kind: 'applied', sig, detail: squash(APPLIED.exec(text)?.[0] ?? '') };
   const apply = applyButton();
@@ -209,6 +212,7 @@ async function accountStep(req: StepRequest, onReport: (r: FillReport) => void):
 
   const report = await run({
     profile: setup.profile,
+    resume: setup.resume, // some sign-up pages take the resume too
     learned: setup.learned,
     overwrite: true,
     autoAdvance: false,

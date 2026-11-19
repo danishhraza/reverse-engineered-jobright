@@ -87,7 +87,8 @@ export function matchOption(options: string[], desired: Desired): MatchResult | 
   // ("Masters of Science (MS)" over "Masters of Arts (MA)" for "Master of Science").
   const tied = real.filter((s) => s.score === real[0].score);
   if (tied.length > 1 && real[0].score < 1) {
-    const overlap = (i: number) => Math.max(...[desired.text, ...(desired.alts ?? [])].filter(Boolean).map((c) => jaccard(options[i], c)));
+    // The search query counts too: "100 Main Street, Springfield, IL" settles which "100 Main Street" it is.
+    const overlap = (i: number) => Math.max(...[desired.text, desired.query, ...(desired.alts ?? [])].filter((c): c is string => !!c).map((c) => jaccard(options[i], c)));
     tied.sort((a, b) => overlap(b.index) - overlap(a.index));
     // Still a tie: ambiguous, so lower confidence.
     if (overlap(tied[0].index) === overlap(tied[1].index)) return { index: tied[0].index, score: Math.min(tied[0].score, 0.55) };

@@ -29,6 +29,7 @@ const RULES: Rule[] = [
   { key: 'fullName', label: /^(your |candidate |applicant )?(full |legal |complete )?name$|^(full|legal) name\b/, attr: /^name$|\bfull name\b|systemfield name/, short: true },
   { key: 'email', label: /\be ?mail\b/, attr: /\be ?mail\b/, short: true },
   { key: 'phoneType', label: /phone (device )?type|type of phone/, attr: /phone device type|phone type/ },
+  { key: 'addressType', label: /^address type$|type of address/, attr: /address type/, short: true },
   { key: 'phoneCountryCode', label: /country (phone )?code|phone country|dial(ing)? code/, attr: /country phone code|phone country|country code/ },
   { key: 'skip', label: /\bextension\b|\bext\b/, short: true },
   { key: 'phone', label: /\b(phone|mobile|cell|telephone)\b/, attr: /\bphone\b|\btel\b/, short: true },
@@ -121,7 +122,8 @@ export function classify(field: Field, bank: Answer[], learned: Answer[]): Class
   // Weaker signal: name/id/automation-id attributes.
   for (const r of RULES) {
     if (r.attr && field.hints && r.attr.test(field.hints) && !(r.not && r.not.test(label))) {
-      return { key: r.key, score: label ? 0.7 : 0.75, source: 'rule' };
+      // A one- or two-word label ("Number", "Type") says little, so the field's id ("PhoneNumber") decides; trust it.
+      return { key: r.key, score: !label ? 0.75 : wordCount(label) <= 2 ? 0.8 : 0.7, source: 'rule' };
     }
   }
   return null;
@@ -277,6 +279,8 @@ export function resolve(c: Classification, p: Profile, field: Field): Resolution
       return t(p.account?.username || p.account?.email || per.email);
     case 'password':
       return p.account?.password ? { desired: { text: p.account.password } } : { flag: 'Save your job-site password in Options → Job site login' };
+    case 'addressType':
+      return t('Home', ['Home Address', 'Residential', 'Primary', 'Mailing', 'Permanent', 'Current']);
     case 'phoneType':
       return t(per.phoneType ?? 'Mobile', ['Cell', 'Mobile Phone', 'Cell Phone', 'Personal Mobile', 'Personal']);
     case 'phoneCountryCode':
@@ -302,7 +306,18 @@ export function resolve(c: Classification, p: Profile, field: Field): Resolution
       return t(per.portfolio || per.website || per.github);
     case 'address1':
       // Address boxes with suggestions (Google Places) find the right one faster with the city.
-      return per.address1 ? { desired: { text: per.address1, query: [per.address1, per.city, per.stateCode || per.state].filter(Boolean).join(', ') } } : t(per.address1);
+      if (!per.address1) return t(per.address1);
+      return {
+        desired: {
+          text: per.address1,
+          query: [per.address1, per.city, per.stateCode || per.state].filter(Boolean).join(', '),
+          // Lookups list full addresses: these pick the right "100 Example Road" among several.
+          alts: [
+            [per.address1, per.city, per.stateCode, per.country === 'United States' ? 'USA' : per.country].filter(Boolean).join(', '),
+            [per.address1, per.city, per.state, per.postalCode].filter(Boolean).join(', '),
+          ],
+        },
+      };
     case 'address2':
       return per.address2 ? t(per.address2) : { skip: 'No address line 2' };
     case 'postalCode':
