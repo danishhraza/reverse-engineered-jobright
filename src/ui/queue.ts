@@ -1,6 +1,7 @@
 import { jobsFromCsv } from '../queue/csv';
 import { getAutopilot, getQueue, getRunner, setAutopilot, today } from '../queue/store';
 import type { AutopilotSettings, JobStatus, QueueJob } from '../queue/types';
+import { detailsRow, esc, firstTab, summaryChips, type Tab } from './job-details';
 
 // The Autopilot page: queue, Start/Pause, per-job actions, and settings.
 // It only reads storage; every change goes through the background.
@@ -8,50 +9,11 @@ import type { AutopilotSettings, JobStatus, QueueJob } from '../queue/types';
 const $ = <T extends HTMLElement>(id: string) => document.getElementById(id) as T;
 const msgEl = $('msg');
 let filter: JobStatus | 'all' | 'done' = 'all';
-const open = new Set<string>(); // jobs with their log expanded
-const openAi = new Set<string>(); // jobs with their AI log expanded
-const openFill = new Set<string>(); // jobs with their fill log expanded
-
-/** Every page fill on a job: each field, what went in, and why. */
-function fillTable(j: QueueJob): string {
-  return (j.fillLog ?? [])
-    .map(
-      (e) => `<div class="muted" style="margin-top:8px;font-size:12px">${new Date(e.at).toTimeString().slice(0, 8)} · page ${e.page} · ${esc(e.message ?? '')}${
-        e.stop ? ` · stop: ${esc(e.stop)}` : ''
-      }<br><span style="font-size:11px">${esc(e.url.slice(0, 140))}</span></div>
-      <table class="ailog"><thead><tr><th>Field</th><th>Result</th><th>Value</th><th>Why</th></tr></thead><tbody>${e.fields
-        .map(
-          (f) => `<tr><td>${esc(f.label)}${f.key ? ` <span class="muted">(${esc(f.key)})</span>` : ''}</td><td><span class="pill ${f.status === 'filled' ? 'applied' : f.status === 'flagged' ? 'needs-you' : f.status}">${esc(f.status)}</span></td><td>${esc(f.value ?? '')}</td><td class="muted">${esc(f.reason ?? '')}</td></tr>`,
-        )
-        .join('')}</tbody></table>`,
-    )
-    .join('');
-}
-
-/** Every AI call on a job: what was asked (with the options), what it answered, and what was done with it. */
-function aiTable(j: QueueJob): string {
-  const rows = (j.aiLog ?? [])
-    .map(
-      (e) => `<tr>
-        <td>${new Date(e.at).toTimeString().slice(0, 8)}</td>
-        <td>${esc(e.question)}${e.note ? `<div class="muted">${esc(e.note)}</div>` : ''}${
-          e.options?.length ? `<details><summary class="muted">${e.options.length} options</summary>${esc(e.options.join(' · '))}</details>` : '<div class="muted">free text</div>'
-        }</td>
-        <td>${esc(e.answer ?? '—')}${e.confidence !== undefined ? ` <span class="muted">(${e.confidence})</span>` : ''}</td>
-        <td>${esc(e.decision ?? '—')}</td>
-        <td class="muted">${e.tokens ? `${e.tokens.toLocaleString()} tok` : ''}${e.cost !== undefined ? `<br>$${e.cost.toFixed(5)}` : ''}</td>
-      </tr>`,
-    )
-    .join('');
-  return `<table class="ailog"><thead><tr><th>Time</th><th>Asked</th><th>AI answered</th><th>What was done</th><th>Cost</th></tr></thead><tbody>${rows}</tbody></table>`;
-}
+/** Jobs with their details open, and which tab. */
+const details = new Map<string, Tab>();
 
 function say(text: string): void {
   msgEl.textContent = text;
-}
-
-function esc(s: string): string {
-  return s.replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c]!);
 }
 
 const send = (payload: object) => chrome.runtime.sendMessage({ type: 'queue', payload });
@@ -154,12 +116,12 @@ async function render(): Promise<void> {
   } else {
     list.innerHTML = '<table><thead><tr><th>Status</th><th>Job</th><th>What happened</th><th></th></tr></thead><tbody></tbody></table>';
     const tbody = list.querySelector('tbody')!;
-    for (const j of shown) tbody.appendChild(row(j));
+    for (const j of shown) tbody.append(...row(j));
   }
   renderSettings(ap);
 }
 
-function row(j: QueueJob): HTMLTableRowElement {
+function row(j: QueueJob): HTMLTableRowElement[] {
   const tr = document.createElement('tr');
   const name = j.title || j.company ? `${esc(j.title ?? '')}${j.title && j.company ? ' · ' : ''}${esc(j.company ?? '')}` : esc(host(j.url));
   tr.innerHTML = `
@@ -171,41 +133,19 @@ function row(j: QueueJob): HTMLTableRowElement {
         ? `<div class="muted" style="font-size:11px">AI: ${j.ai.calls} call${j.ai.calls > 1 ? 's' : ''} · ${(j.ai.tokensIn + j.ai.tokensOut).toLocaleString()} tokens${j.ai.cost ? ` · $${j.ai.cost.toFixed(4)}` : ''}</div>`
         : ''
     }</td>
-    <td class="why">${esc(j.reason ?? j.log.at(-1)?.slice(6) ?? '')}${j.log.length ? ` <a href="#" class="toggle">${open.has(j.id) ? 'hide log' : 'log'}</a>` : ''}${open.has(j.id) ? `<div class="log">${esc(j.log.join('\n'))}</div>` : ''}</td>
+    <td class="why"><div>${esc(j.reason ?? j.log.at(-1)?.slice(6) ?? '')}</div><div class="chips">${summaryChips(j)}</div></td>
     <td class="acts"></td>`;
-  tr.querySelector('.toggle')?.addEventListener('click', (e) => {
-    e.preventDefault();
-    if (open.has(j.id)) open.delete(j.id);
-    else open.add(j.id);
-    render();
-  });
-  if (j.aiLog?.length) {
-    const why = tr.querySelector('.why')!;
-    const link = document.createElement('a');
-    link.href = '#';
-    link.textContent = openAi.has(j.id) ? ` hide AI log` : ` AI log (${j.aiLog.length})`;
-    link.addEventListener('click', (e) => {
-      e.preventDefault();
-      if (openAi.has(j.id)) openAi.delete(j.id);
-      else openAi.add(j.id);
+  if (j.log.length || j.fillLog?.length || j.aiLog?.length) {
+    const more = document.createElement('button');
+    more.className = 'more';
+    more.textContent = details.has(j.id) ? 'Hide details' : 'Details';
+    more.setAttribute('aria-expanded', String(details.has(j.id)));
+    more.addEventListener('click', () => {
+      if (details.has(j.id)) details.delete(j.id);
+      else details.set(j.id, firstTab(j));
       render();
     });
-    why.appendChild(link);
-    if (openAi.has(j.id)) why.insertAdjacentHTML('beforeend', aiTable(j));
-  }
-  if (j.fillLog?.length) {
-    const why = tr.querySelector('.why')!;
-    const link = document.createElement('a');
-    link.href = '#';
-    link.textContent = openFill.has(j.id) ? ' hide fill log' : ` fill log (${j.fillLog.length})`;
-    link.addEventListener('click', (e) => {
-      e.preventDefault();
-      if (openFill.has(j.id)) openFill.delete(j.id);
-      else openFill.add(j.id);
-      render();
-    });
-    why.appendChild(link);
-    if (openFill.has(j.id)) why.insertAdjacentHTML('beforeend', fillTable(j));
+    tr.querySelector('.chips')!.appendChild(more);
   }
   const acts = tr.querySelector('.acts')!;
   // Everything about this job in one file, for a bug report.
@@ -233,7 +173,13 @@ function row(j: QueueJob): HTMLTableRowElement {
     });
     acts.appendChild(b);
   }
-  return tr;
+  const tab = details.get(j.id);
+  if (!tab) return [tr];
+  const pick = (t: Tab) => {
+    details.set(j.id, t);
+    render();
+  };
+  return [tr, detailsRow(j, tab, pick)];
 }
 
 // ---------- Adding jobs ----------

@@ -256,6 +256,16 @@ async function fillCheckbox(f: Field, d: Desired): Promise<WidgetResult> {
   return done() ? { ok: true, value: want ? 'Checked' : 'Unchecked', match: 1 } : { ok: false, match: 0, reason: 'Checkbox did not toggle' };
 }
 
+/** Tick one checkbox, by its drawn box if the real one is hidden. True when it shows as ticked. */
+async function tick(input: HTMLInputElement): Promise<boolean> {
+  const target = clickTarget(input);
+  const drawn = () => [target, target.parentElement].some((n) => !!n && /(^|[-_\s])checked\b/i.test(typeof n.className === 'string' ? n.className : ''));
+  if (input.checked || drawn()) return true;
+  realClick(target);
+  await sleep(80);
+  return input.checked || drawn();
+}
+
 async function fillCheckboxGroup(f: Field, d: Desired): Promise<WidgetResult> {
   const choices = f.choices ?? [];
   const wanted = d.multi?.length ? d.multi.map((text) => ({ text })) : [d];
@@ -268,9 +278,7 @@ async function fillCheckboxGroup(f: Field, d: Desired): Promise<WidgetResult> {
     );
     if (!m || m.score < MIN_MATCH) return { ok: false, match: m?.score ?? 0, reason: `No good option for "${w.text}"` };
     const input = choices[m.index].el as HTMLInputElement;
-    if (!input.checked) realClick(!isVisible(input) && input.labels?.[0] ? input.labels[0] : input);
-    await sleep(50);
-    if (!input.checked) return { ok: false, match: 0, reason: 'Checkbox did not toggle' };
+    if (!(await tick(input))) return { ok: false, match: 0, reason: 'Checkbox did not toggle' };
     picked.push(choices[m.index].label);
     worst = Math.min(worst, m.score);
   }
@@ -279,19 +287,41 @@ async function fillCheckboxGroup(f: Field, d: Desired): Promise<WidgetResult> {
 
 // ---------- Custom dropdowns (react-select, Workday prompts, Ashby, ...) ----------
 
+/**
+ * Inside the popup a dropdown says it controls, list items and grid rows/cells count as options
+ * too (Oracle's cx-select is aria-haspopup="grid"); anywhere else only things marked as options.
+ */
+const SCOPED_OPTION_SEL = `${OPTION_SEL}, [role="gridcell"], [role="row"], li`;
+
 function visibleOptions(trigger: HTMLElement): HTMLElement[] {
   const ids = (trigger.getAttribute('aria-controls') || trigger.getAttribute('aria-owns') || '').split(/\s+/).filter(Boolean);
   const scoped = ids.map((id) => document.getElementById(id)).filter((x): x is HTMLElement => !!x);
   const roots: ParentNode[] = scoped.length ? scoped : [document];
+  const sel = scoped.length ? SCOPED_OPTION_SEL : OPTION_SEL;
   const out: HTMLElement[] = [];
   for (const r of roots) {
-    for (const o of Array.from(r.querySelectorAll<HTMLElement>(OPTION_SEL))) {
-      if (o.closest('.rej-ui') || !isVisible(o) || o.querySelector(OPTION_SEL)) continue;
+    for (const o of Array.from(r.querySelectorAll<HTMLElement>(sel))) {
+      // The innermost option-like element with text (a row's cell, not the row and the cell).
+      if (o.closest('.rej-ui') || !isVisible(o) || o.querySelector(sel) || !cleanText(o)) continue;
       if (o.getAttribute('aria-disabled') === 'true') continue;
       out.push(o);
     }
   }
   return out.filter((o) => !isPlaceholderOption(cleanText(o)));
+}
+
+/** A separate "open the list" button for this dropdown (Oracle's arrow, controlling the same list). */
+function toggleButton(trigger: HTMLElement): HTMLElement | null {
+  const ids = (trigger.getAttribute('aria-controls') ?? '').split(/\s+/).filter(Boolean);
+  if (!ids.length) return null;
+  return (
+    Array.from(document.querySelectorAll<HTMLElement>('button[aria-controls], [role="button"][aria-controls]')).find(
+      (x) =>
+        x !== trigger &&
+        (x.getAttribute('aria-controls') ?? '').split(/\s+/).some((id) => ids.includes(id)) &&
+        !/clear|remove|reset/i.test(`${x.getAttribute('aria-label') ?? ''} ${x.title} ${typeof x.className === 'string' ? x.className : ''}`),
+    ) ?? null
+  );
 }
 
 function isOpen(trigger: HTMLElement): boolean {
@@ -368,6 +398,14 @@ async function fillCombobox(f: Field, d: Desired, overwrite: boolean): Promise<W
       // Unfocused window: react-select-style lists open on focus, which never arrives; the down arrow opens them.
       pressKey(trigger, 'ArrowDown');
       options = await waitFor(optionsNow, { timeout: 1500 });
+    }
+    if (!options && !query) {
+      // Still shut: some open only from their arrow button (Oracle).
+      const toggle = toggleButton(trigger);
+      if (toggle) {
+        realClick(toggle);
+        options = await waitFor(optionsNow, { timeout: 2000 });
+      }
     }
     if (!typable && attempt === 0) {
       // Opened, and the list has its own search box: search there if the answer isn't listed.
@@ -452,6 +490,9 @@ function findPopupSearch(trigger: HTMLElement): HTMLInputElement | null {
 function closeDropdown(trigger: HTMLElement): void {
   if (trigger.getAttribute('aria-expanded') === 'true' || visibleOptions(trigger).length) {
     pressKey(trigger, 'Escape');
+    // Some only close from their arrow button (Oracle); clicking it again would reopen others, so only if still open.
+    const toggle = visibleOptions(trigger).length ? toggleButton(trigger) : null;
+    if (toggle) realClick(toggle);
   }
   trigger.dispatchEvent(new FocusEvent('blur', { bubbles: true }));
 }
@@ -631,6 +672,11 @@ export async function peekOptions(f: Field): Promise<string[]> {
     // only open on focus; the down arrow opens them anyway.
     pressKey(trigger, 'ArrowDown');
     shown = await waitFor(() => (visibleOptions(trigger).length ? true : null), { timeout: 1500 });
+  }
+  const toggle = shown ? null : toggleButton(trigger);
+  if (toggle) {
+    realClick(toggle);
+    shown = await waitFor(() => (visibleOptions(trigger).length ? true : null), { timeout: 2000 });
   }
   if (shown) await waitForSettle(200, 1000);
   const labels = visibleOptions(trigger)

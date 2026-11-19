@@ -62,7 +62,7 @@ const RULES: Rule[] = [
   { key: 'relocationAssistance', label: /relocation (assistance|package|support|help|benefits?|expenses?|reimbursement)|(need|require|requiring|expect)\b.*\brelocation\b/ },
   { key: 'relocate', label: /relocat/ },
   { key: 'hispanic', label: /hispanic|latin[oax]/ },
-  { key: 'ethnicity', label: /\b(race|ethnicity|ethnic|racial)\b/ },
+  { key: 'ethnicity', label: /\b(races?|ethnicity|ethnic|racial)\b/ },
   { key: 'gender', label: /\bgender\b|\bsex\b/, not: /transgender|orientation/ },
   { key: 'lgbtq', label: /lgbt|sexual orientation|transgender/ },
   { key: 'veteran', label: /veteran|military|armed forces/ },
@@ -249,6 +249,8 @@ export function resolve(c: Classification, p: Profile, field: Field): Resolution
       const a = c.answer ?? '';
       if (/^yes$/i.test(a)) return { desired: yes(true) };
       if (/^no$/i.test(a)) return { desired: yes(false) };
+      // "Monday, Tuesday, …" for a tick-all-that-apply question.
+      if (field.kind === 'checkboxGroup' && a.includes(',')) return { desired: { text: a, multi: a.split(/\s*,\s*/).filter(Boolean) } };
       return { desired: { text: a } };
     }
     case 'skip':
@@ -425,8 +427,16 @@ export function resolve(c: Classification, p: Profile, field: Field): Resolution
       const fmt = (n: number) => `$${n.toLocaleString('en-US')}`;
       return t(lo && hi ? `${fmt(lo)} - ${fmt(hi)}` : fmt((lo ?? hi)!));
     }
-    case 'startAvailability':
-      return t(p.preferences.startAvailability);
+    case 'startAvailability': {
+      // A date box (or its Day / Month / Year parts) wants a date, worked out from "Within 2 months…".
+      const part = datePart(field, lnorm);
+      if (!part) return t(p.preferences.startAvailability);
+      const d = startDate(p.preferences.startAvailability);
+      if (part === 'day') return t(String(d.getDate()), [pad(d.getDate())]);
+      if (part === 'month') return t(MONTHS[d.getMonth()], [MONTHS[d.getMonth()].slice(0, 3), pad(d.getMonth() + 1), String(d.getMonth() + 1)]);
+      if (part === 'year') return t(String(d.getFullYear()));
+      return t(`${pad(d.getMonth() + 1)}/${pad(d.getDate())}/${d.getFullYear()}`);
+    }
     case 'yearsExperience':
       return { flag: 'Years of experience — add an answer-bank entry or fill it yourself' };
     case 'workDescription':
@@ -434,6 +444,11 @@ export function resolve(c: Classification, p: Profile, field: Field): Resolution
     case 'currentCompany':
       return t(currentJob?.company);
     case 'currentTitle':
+      // "Title" with Mr. / Ms. / Dr. options is a name title, not a job title.
+      if (optionTexts(field).some((o) => /^(mr|ms|mrs|miss|dr)\.?$/i.test(o.trim()))) {
+        const g = norm(p.eeo.gender ?? '');
+        return /^(male|man)$/.test(g) ? t('Mr.', ['Mr']) : /^(female|woman)$/.test(g) ? t('Ms.', ['Ms']) : { skip: 'Name title — left for you' };
+      }
       return t(currentJob?.title);
     case 'school':
       return t(edu?.school);
@@ -473,6 +488,44 @@ export function resolve(c: Classification, p: Profile, field: Field): Resolution
 /** A page with a password box is a sign-up / sign-in page. */
 function onAccountPage(): boolean {
   return typeof document !== 'undefined' && !!document.querySelector('input[type="password"]');
+}
+
+const MONTHS = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
+
+/** The labels of a field's options (radio/checkbox choices or a native select's). */
+function optionTexts(field: Field): string[] {
+  if (field.choices?.length) return field.choices.map((c) => c.label);
+  if (field.kind === 'select') return Array.from((field.el as HTMLSelectElement).options).map((o) => o.textContent ?? '');
+  return field.peeked ?? [];
+}
+
+/** Which part of a date a field holds: a separate Day / Month / Year box, a whole date, or none (free text). */
+function datePart(field: Field, lnorm: string): 'day' | 'month' | 'year' | 'date' | null {
+  const last = lnorm.split(' ').pop() ?? '';
+  const hint = `${field.hints} ${norm(field.el.getAttribute('placeholder') ?? '')}`;
+  if (last === 'day' || /\bday\b/.test(field.hints)) return 'day';
+  if (last === 'month' || /\bmonth\b/.test(field.hints)) return 'month';
+  if (last === 'year' || /\byear\b/.test(field.hints)) return 'year';
+  if (field.kind === 'date' || field.inputType === 'date' || /\b(mm|dd|yyyy)\b/.test(hint) || (/\bdate\b/.test(lnorm) && field.kind !== 'textarea')) return 'date';
+  return null;
+}
+
+/** When you could start, from your answer ("Within 2 months after offer acceptance", "2 weeks", "Immediately"). */
+export function startDate(text: string | undefined, from = new Date()): Date {
+  const t = (text ?? '').toLowerCase();
+  const d = new Date(from.getFullYear(), from.getMonth(), from.getDate());
+  if (/immediate|asap|right away|\bnow\b/.test(t)) return d;
+  const words: Record<string, number> = { one: 1, two: 2, three: 3, four: 4, five: 5, six: 6 };
+  const m = /(\d+|one|two|three|four|five|six)\s*(day|week|month)/.exec(t);
+  if (!m) {
+    d.setDate(d.getDate() + 14);
+    return d;
+  }
+  const n = Number(m[1]) || words[m[1]];
+  if (m[2] === 'day') d.setDate(d.getDate() + n);
+  else if (m[2] === 'week') d.setDate(d.getDate() + 7 * n);
+  else d.setMonth(d.getMonth() + n);
+  return d;
 }
 
 function ethnicityAlts(e: string): string[] {

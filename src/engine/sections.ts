@@ -142,6 +142,9 @@ export async function fillSections(opts: SectionFillOptions): Promise<void> {
     const entries = kind.entries(opts.profile).slice(0, MAX_ENTRIES);
     let sec = sectionOf(kind);
     if (!sec || !entries.length) continue;
+    // No fields yet and an "Add Experience" button: each entry opens its own form
+    // with a Save (Oracle). fillEntryForms does those.
+    if (!blocksOf(sec).length && ADD_ENTRY.some(([re]) => re.test(textOf(sec!.add)))) continue;
     const done = new Set<string>();
 
     for (let i = 0; i < entries.length; i++) {
@@ -194,4 +197,99 @@ export function entryFor(f: Field, profile: Profile): { name: string; entry: unk
     return entry ? { name: `${s.kind.name} ${i + 1}`, entry, resolver: s.kind.resolver } : null;
   }
   return null;
+}
+
+// ---------- Entries added through their own little form (Oracle Cloud) ----------
+//
+// "Work and Education History": an "Add Experience" button opens a form for one
+// job, with its own Save; the saved job shows as a card. Repeat per entry.
+
+const ADD_ENTRY: [RegExp, number][] = [
+  [/^\+?\s*add (a |an |new )?(work )?(experience|employment|job|position|work history|employer)s?$/i, 0],
+  [/^\+?\s*add (a |an |new )?(education|school|degree|qualification)s?$/i, 1],
+];
+const SAVE_ENTRY = /^(save|add|done|ok|confirm|apply|save (and|&) close|save (experience|education|entry|job|school))$/i;
+
+function buttonsIn(root: ParentNode): HTMLElement[] {
+  return Array.from(root.querySelectorAll<HTMLElement>('button, a, [role="button"], input[type="button"], input[type="submit"]')).filter(
+    (b) => !b.closest('.rej-ui') && isVisible(b) && !(b as HTMLButtonElement).disabled,
+  );
+}
+
+const textOf = (b: HTMLElement) => squash(cleanText(b) || (b as HTMLInputElement).value || b.getAttribute('aria-label') || '');
+
+/** The Save button for an open entry form: in its dialog, or the nearest one around its fields. */
+function saveButton(fields: Field[], addButton: HTMLElement): HTMLElement | null {
+  const first = fields[0]?.el;
+  if (!first) return null;
+  const dialog = first.closest('[role="dialog"], [aria-modal="true"], dialog');
+  if (dialog) return buttonsIn(dialog).find((b) => SAVE_ENTRY.test(textOf(b))) ?? null;
+  for (let n: HTMLElement | null = first.parentElement, i = 0; n && i < 8; n = n.parentElement, i++) {
+    const b = buttonsIn(n).find((x) => x !== addButton && SAVE_ENTRY.test(textOf(x)) && fields.some((f) => n!.contains(f.el)));
+    if (b) return b;
+  }
+  return null;
+}
+
+export async function fillEntryForms(opts: SectionFillOptions): Promise<void> {
+  for (const [re, k] of ADD_ENTRY) {
+    const kind = KINDS[k];
+    const sec = sectionOf(kind);
+    if (sec && blocksOf(sec).length) continue; // repeating blocks on this page: fillSections did it
+    const entries = kind.entries(opts.profile).slice(0, MAX_ENTRIES) as { company?: string; school?: string }[];
+    if (!entries.length || !buttonsIn(document).some((b) => re.test(textOf(b)))) continue;
+    for (let i = 0; i < entries.length; i++) {
+      checkCancel();
+      const name = `${kind.name} ${i + 1}`;
+      const marker = entries[i].company ?? entries[i].school;
+      // Already there (added earlier, or from the site's resume parsing): don't add it twice.
+      if (marker && (document.body.innerText || document.body.textContent || '').includes(marker)) {
+        opts.onRow({ id: '', label: name, status: 'skipped', confidence: 1, value: marker, reason: 'Already on the page' });
+        continue;
+      }
+      const add = buttonsIn(document).find((b) => re.test(textOf(b)));
+      if (!add) break;
+      const before = new Set(scanFields().map((f) => f.id));
+      status(`${name}: "${textOf(add)}"…`);
+      realClick(add);
+      const opened = await waitFor(() => (scanFields().some((f) => !before.has(f.id)) ? true : null), { timeout: 6000 });
+      if (!opened) {
+        opts.onRow({ id: '', label: name, status: 'flagged', confidence: 0, reason: `Pressed "${textOf(add)}" but no form opened — add it yourself` });
+        break;
+      }
+      await waitForSettle(300, 2000);
+      // Two rounds: an answer can reveal fields (End Date after "I currently work here" is left off).
+      const done = new Set<string>();
+      let form: Field[] = [];
+      for (let round = 0; round < 2; round++) {
+        const fresh = scanFields().filter((f) => !before.has(f.id) && !done.has(f.id));
+        if (!fresh.length) break;
+        form = [...form, ...fresh];
+        for (const f of fresh) {
+          checkCancel();
+          done.add(f.id);
+          opts.handled.add(f.id);
+          status(`${name}: ${f.label || 'field'}…`);
+          const r = await fillEntryField(f, name, entries[i], kind.resolver, true, opts.fallback, opts.aiPick);
+          if (r) opts.onRow(r);
+        }
+        await waitForSettle(200, 1000);
+      }
+      const save = saveButton(form.filter((f) => f.el.isConnected), add);
+      if (!save) {
+        // An inline block with nothing to save (the fields just stay on the page).
+        opts.onRow({ id: '', label: name, status: 'filled', confidence: 0.8, value: marker, reason: 'Added (no Save button on this form)' });
+        continue;
+      }
+      status(`${name}: "${textOf(save)}"…`);
+      realClick(save);
+      const closed = await waitFor(() => (form.every((f) => !f.el.isConnected || !isVisible(f.el)) ? true : null), { timeout: 6000 });
+      await waitForSettle(300, 2000);
+      if (!closed) {
+        opts.onRow({ id: '', label: name, status: 'flagged', confidence: 0, reason: `Pressed "${textOf(save)}" but the entry form stayed open — check what it needs` });
+        break;
+      }
+      opts.onRow({ id: '', label: name, status: 'filled', confidence: 0.9, value: marker, reason: 'Added' });
+    }
+  }
 }

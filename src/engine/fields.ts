@@ -33,6 +33,8 @@ export interface Field {
   required: boolean;
   choices?: Choice[];
   inputType?: string;
+  /** A dropdown's option labels, read by opening it (when a rule needs them to decide). */
+  peeked?: string[];
 }
 
 const ID_ATTR = 'data-rej-id';
@@ -456,8 +458,27 @@ export function scanFields(opts: ScanOptions = {}): Field[] {
 }
 
 function groupKey(input: HTMLInputElement): string {
-  const c = composedClosest(input, isGroup);
+  const c = composedClosest(input, isGroup) ?? choiceBox(input);
   return c ? `grp-${stampId(c)}` : `solo-${stampId(input)}`;
+}
+
+/**
+ * Unnamed checkboxes with no fieldset around them (Oracle's "Select the races
+ * you identify with"): the nearest box holding only short-labelled checkboxes
+ * is one question. Long labels ("I agree to…", "Text me about…") stay separate.
+ */
+function choiceBox(input: HTMLInputElement): HTMLElement | null {
+  let n: HTMLElement | null = input.parentElement;
+  for (let i = 0; n && i < 4; n = n.parentElement, i++) {
+    if (n.matches('form, body')) return null;
+    const boxes = Array.from(n.querySelectorAll<HTMLInputElement>('input[type="checkbox"]'));
+    if (boxes.length < 2) continue;
+    if (n.querySelector('input:not([type="checkbox"]):not([type="hidden"]), select, textarea, [role="combobox"]')) return null;
+    if (boxes.some((b) => b.name !== input.name)) return null;
+    if (boxes.some((b) => choiceLabel(b).length > 60)) return null;
+    return n;
+  }
+  return null;
 }
 
 /** The box around just these choices: their shared container, unless that's the form or holds other questions. */

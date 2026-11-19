@@ -5,7 +5,7 @@ import { readFile } from 'node:fs/promises';
 import { extname, join } from 'node:path';
 
 await build({ entryPoints: ['debug/react-select-page.ts'], bundle: true, format: 'iife', outdir: 'debug/out', define: { 'process.env.NODE_ENV': '"development"' } });
-const types = { '.html': 'text/html', '.js': 'text/javascript' };
+const types = { '.html': 'text/html', '.js': 'text/javascript', '.css': 'text/css', '.png': 'image/png' };
 createServer(async (req, res) => {
   const path = join('debug', decodeURIComponent(new URL(req.url, 'http://x').pathname));
   try {
