@@ -22,7 +22,8 @@ const MONTHS = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 
 export function dateDesired(f: Field, ym: YearMonth | undefined): Desired | null {
   if (!ym) return null;
   const ph = (f.el.getAttribute('placeholder') ?? '').toLowerCase();
-  const h = `${f.hints} ${norm(f.el.getAttribute('aria-label') ?? '')} ${norm(ph)}`;
+  // The label's last word too: Oracle splits a date into "Start Date Month" / "Start Date Year" boxes.
+  const h = `${f.hints} ${norm(f.el.getAttribute('aria-label') ?? '')} ${norm(ph)} ${norm(f.label).split(' ').pop() ?? ''}`;
   const m = ym.month;
   const month = /\bmonth\b|\bmm\b/.test(h);
   const year = /\byear\b|\byyyy\b/.test(h);

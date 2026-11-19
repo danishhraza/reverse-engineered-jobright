@@ -35,6 +35,27 @@
       table.ailog { margin-top: 8px; font-size: 12px; background: var(--panel); border-radius: 8px; }
       table.ailog td, table.ailog th { padding: 5px 6px; }
       table.ailog details { font-size: 11px; color: var(--muted); }
+      td.why .chips { margin-top: 4px; display: flex; gap: 6px; align-items: center; flex-wrap: wrap; font-size: 12px; }
+      td.why button.more { padding: 2px 8px; font-size: 12px; }
+      tr.details > td { background: var(--bg); padding: 2px 8px 14px; }
+      .dtabs { display: flex; gap: 2px; border-bottom: 1px solid var(--border); margin-bottom: 10px; flex-wrap: wrap; }
+      .dtabs button { border: 0; border-bottom: 2px solid transparent; border-radius: 0; background: none; padding: 6px 10px; font-size: 12px; color: var(--muted); }
+      .dtabs button.on { color: var(--text); border-bottom-color: var(--focus); font-weight: 600; }
+      .dtabs .n { display: inline-block; min-width: 18px; padding: 0 5px; border-radius: 9px; background: var(--border); color: var(--text); font-size: 11px; text-align: center; }
+      .dtabs .n.warn { background: var(--warn-bg); color: var(--warn); }
+      .dbody { max-height: 520px; overflow: auto; }
+      .dbody .reason { margin: 0 0 8px; }
+      ol.steps { list-style: none; margin: 0; padding: 0; font-size: 12px; }
+      ol.steps li { display: grid; grid-template-columns: 44px 1fr; gap: 8px; padding: 3px 6px; border-left: 3px solid transparent; overflow-wrap: anywhere; }
+      ol.steps li:nth-child(odd) { background: var(--panel); }
+      ol.steps li time { color: var(--muted); font-variant-numeric: tabular-nums; }
+      ol.steps li.bad { border-left-color: var(--bad); }
+      ol.steps li.warn { border-left-color: var(--warn); }
+      ol.steps li.ai { border-left-color: var(--focus); }
+      details.page { margin-bottom: 8px; border: 1px solid var(--border); border-radius: 8px; padding: 6px 8px; background: var(--panel); }
+      details.page > summary { cursor: pointer; font-size: 12px; }
+      details.page .url { font-size: 11px; margin-top: 4px; overflow-wrap: anywhere; }
+      details.page table.ailog { background: var(--bg); }
       #settings label { display: grid; grid-template-columns: 260px 120px; gap: 8px; align-items: center; margin-bottom: 6px; }
       #settings input[type=number] { font: inherit; padding: 5px 8px; border: 1px solid var(--border); border-radius: 6px; background: var(--bg); color: var(--text); }
       #msg { min-height: 18px; }

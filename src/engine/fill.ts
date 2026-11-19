@@ -5,7 +5,7 @@ import { checkCancel, rethrowCancel, status } from './control';
 import { cleanText, isVisible, realClick, sleep, squash, waitFor, waitForSettle } from './dom';
 import { currentValue, isPressed, scanFields, stampId, type Field } from './fields';
 import { fillEntryField } from './entries';
-import { entryFor, fillSections } from './sections';
+import { entryFor, fillEntryForms, fillSections } from './sections';
 import { fillField, MIN_MATCH, peekOptions } from './widgets';
 import { isPlaceholderOption, norm, type Desired } from './match';
 
@@ -92,19 +92,27 @@ export async function fillPage(opts: PageFillOptions): Promise<FieldReport[]> {
     }
     emit();
   } else {
-    // Repeating Work/Education blocks on sites without their own adapter code.
+    // Repeating Work/Education blocks on sites without their own adapter code,
+    // then entries added one at a time through their own form (Oracle's "Add Experience").
     checkCancel();
-    await fillSections({
+    const sectionOpts = {
       profile,
       overwrite: opts.overwrite,
       handled: ctx.handled,
-      onRow: (r) => {
+      onRow: (r: FieldReport) => {
         ctx.extra.push(r);
         emit();
       },
-      fallback: (f) => fillOne(f, opts),
-      aiPick: (f, note) => aiFill(f, opts, note),
-    });
+      fallback: (f: Field) => fillOne(f, opts),
+      aiPick: (f: Field, note: string) => aiFill(f, opts, note),
+    };
+    await fillSections(sectionOpts);
+    try {
+      await fillEntryForms(sectionOpts);
+    } catch (e) {
+      rethrowCancel(e);
+      ctx.extra.push({ id: '', label: 'Work / Education entries', status: 'failed', confidence: 0, reason: String(e) });
+    }
   }
 
   // 3. Generic pass. Re-scan after each pass: answering one question can reveal others.
@@ -185,6 +193,8 @@ async function fillOne(f: Field, opts: PageFillOptions): Promise<FieldReport | n
   if (c.key === 'consent' && opts.agreeToTerms && (f.kind === 'checkbox' || f.kind === 'checkboxGroup')) {
     return applyDesired(f, { text: 'Yes', bool: true }, c.score, c.key, opts, 'Agreed (autopilot)');
   }
+  // "Title" as a dropdown: Mr. / Ms. or a job title? Only its options tell.
+  if (c.key === 'currentTitle' && f.kind === 'combobox' && !f.peeked && !currentValue(f)) f.peeked = await peekOptions(f);
   const res = resolve(c, opts.profile, f);
   if ('skip' in res) {
     if (c.key === 'resume') return null;
