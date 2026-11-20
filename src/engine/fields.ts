@@ -345,7 +345,10 @@ export function scanFields(opts: ScanOptions = {}): Field[] {
     if (el.tagName === 'INPUT' && SKIP_INPUT_TYPES.has(type)) continue;
     if (input.disabled || /recaptcha|captcha|honeypot/i.test(`${input.name} ${el.id}`)) continue;
     if (type === 'file') {
-      // File inputs are usually visually hidden behind an "Attach" button; don't require visibility.
+      // File inputs are usually visually hidden behind an "Attach" button; don't require visibility,
+      // but something around them must show. A form that's hidden until you press Apply (Trakstar)
+      // hides its whole box, and isn't the form yet.
+      if (!isVisible(el) && !nearVisible(el)) continue;
       seen.add(el);
       const container = el.closest('fieldset, [role="group"], [data-automation-id^="formField-"], .field, .application-question, div') ?? el;
       const raw = labelFor(el) || groupLabel(container) || cleanText(container);
@@ -462,6 +465,17 @@ export function scanFields(opts: ScanOptions = {}): Field[] {
 function groupKey(input: HTMLInputElement): string {
   const c = composedClosest(input, isGroup) ?? choiceBox(input);
   return c ? `grp-${stampId(c)}` : `solo-${stampId(input)}`;
+}
+
+/**
+ * A hidden input whose surroundings show: a visible label pointing at it, or its
+ * grandparent box on screen (the input and its own little wrapper may be hidden
+ * behind an "Attach" button; anything hidden further out hides the whole question).
+ */
+function nearVisible(el: HTMLElement): boolean {
+  if (el.id && Array.from(document.querySelectorAll<HTMLLabelElement>('label[for]')).some((l) => l.htmlFor === el.id && isVisible(l))) return true;
+  const outer = el.parentElement?.parentElement ?? el.parentElement;
+  return !!outer && isVisible(outer);
 }
 
 /**
