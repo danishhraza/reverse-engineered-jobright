@@ -53,6 +53,9 @@ describe('the prompt', () => {
     expect(p).toContain(`[2] ${WHY} (required)`);
     expect(p).toContain('pick exactly one of: "Yes" | "No"');
     expect(p).toContain('cover letter');
+    // Written like a person, not an AI.
+    expect(p).toContain('conversational');
+    expect(p).toContain('no em dashes');
     expect(p).toMatch(/\[1\]\n<answer>\n\[2\]\n<answer>\n\[3\]\n<answer>$/);
   });
 });
