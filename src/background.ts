@@ -31,6 +31,13 @@ chrome.notifications?.onClicked.addListener(() => {
   chrome.tabs.create({ url: chrome.runtime.getURL('queue.html') });
 });
 
+/** A short hash of the profile summary sent to the AI (minus today's date, which changes daily). */
+function factsHash(facts: string): string {
+  let h = 0;
+  for (const ch of facts.replace(/^Today: .*$/m, '')) h = (Math.imul(h, 31) + ch.charCodeAt(0)) | 0;
+  return (h >>> 0).toString(36);
+}
+
 /** Answers are reused across applications: same question + options = same answer. */
 async function answerQuestion(q: AiQuestion, facts: string, job: string, tabId?: number): Promise<{ answer?: string; confidence?: number; error?: string }> {
   const asked = { what: q.question, options: q.options, note: q.note };
@@ -41,7 +48,8 @@ async function answerQuestion(q: AiQuestion, facts: string, job: string, tabId?:
   }
   // Questions naming the company ("…working at Deloitte?") differ per company, so the job isn't part of the key;
   // the note is ("for Education 2, the answer is…").
-  const key = `${norm(q.question)}|${q.options.map(norm).join('|')}|${norm(q.note ?? '')}`;
+  // Your facts are part of it too, so changing your profile (new facts, a new salary) asks afresh.
+  const key = `${norm(q.question)}|${q.options.map(norm).join('|')}|${norm(q.note ?? '')}|${factsHash(facts)}`;
   const cached = (await getAiAnswers())[key];
   if (cached && cached.confidence >= 0.7) {
     if (tabId !== undefined) await recordAi(tabId, { ...asked, result: `"${cached.answer}" (${cached.confidence}, reused)`, answer: cached.answer, confidence: cached.confidence });
@@ -237,7 +245,7 @@ chrome.runtime.onMessage.addListener((msg, sender, reply) => {
         frames.map((f) => chrome.tabs.sendMessage(msg.tabId, { type: 'snapshot' }, { frameId: f.frameId }).catch(() => null)),
       );
       reply(parts.filter(Boolean));
-    })();
+    })().catch(() => reply([])); // the tab closed meanwhile
     return true;
   }
   if (msg.type === 'autoResult') {

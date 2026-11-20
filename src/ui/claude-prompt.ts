@@ -34,7 +34,8 @@ export function questionsFor(j: QueueJob): AskQuestion[] {
     const cover = isFile && COVER.test(f.label);
     if (isFile && !cover) continue;
     const open = f.status === 'flagged' || f.status === 'failed';
-    const aiEssay = f.status === 'filled' && f.key === 'ai' && f.kind === 'textarea';
+    // AI essays, and anything the AI filled without being sure (pink): your Claude knows you better.
+    const aiEssay = f.status === 'filled' && f.key === 'ai' && (f.kind === 'textarea' || !!f.review);
     if (!open && !aiEssay) continue;
     out.push({ label: f.label, kind: f.kind, options: f.options, required: f.required, coverLetter: cover || undefined, current: aiEssay ? f.value : undefined });
   }

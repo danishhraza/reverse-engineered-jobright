@@ -8,6 +8,7 @@ import type { Probe, StepOutcome } from '../queue/types';
 import { loadSetup } from './context';
 import { candidates, findBlocker, looksLoading, markTried } from './blockers';
 import { jobDescription } from './jd';
+import { setJobText } from '../engine/salary';
 
 // Autopilot, page side. The background asks every frame what it sees
 // (probe), picks the frame that matters, and asks it to take one step: click
@@ -101,6 +102,8 @@ export interface StepRequest {
   mode?: 'guide';
   /** You fixed things on this page and pressed Continue: fill only empty fields. */
   onlyEmpty?: boolean;
+  /** The job description saved from an earlier page (its posted pay range answers salary questions). */
+  jd?: string;
 }
 
 export async function step(req: StepRequest, onReport: (r: FillReport) => void): Promise<StepOutcome> {
@@ -248,6 +251,7 @@ async function accountStep(req: StepRequest, onReport: (r: FillReport) => void):
 async function formStep(req: StepRequest, onReport: (r: FillReport) => void): Promise<StepOutcome> {
   const setup = await loadSetup(req.profileId);
   if ('error' in setup) return { kind: 'failed', reason: setup.error };
+  setJobText(jobDescription() || req.jd);
   const report = await run({
     profile: setup.profile,
     resume: setup.resume,

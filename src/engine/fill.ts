@@ -8,6 +8,7 @@ import { fillEntryField } from './entries';
 import { entryFor, fillEntryForms, fillSections } from './sections';
 import { fillField, MIN_MATCH, peekOptions } from './widgets';
 import { isPlaceholderOption, norm, type Desired } from './match';
+import { salaryPlan } from './salary';
 
 // The page-level fill loop: upload the resume first (sites re-parse it and
 // overwrite fields), then fill every field, retrying each a few times, and
@@ -206,7 +207,7 @@ async function fillOne(f: Field, opts: PageFillOptions): Promise<FieldReport | n
     return applyDesired(f, { text: 'Yes', bool: true }, c.score, c.key, opts, 'Agreed (autopilot)');
   }
   // Answers that depend on the options: "Title" (Mr. / Ms. or a job title?), start date (which range?).
-  if ((c.key === 'currentTitle' || c.key === 'startAvailability') && f.kind === 'combobox' && !f.peeked && !currentValue(f)) f.peeked = await peekOptions(f);
+  if ((c.key === 'currentTitle' || c.key === 'startAvailability' || c.key === 'salary') && f.kind === 'combobox' && !f.peeked && !currentValue(f)) f.peeked = await peekOptions(f);
   const res = resolve(c, opts.profile, f);
   if ('skip' in res) {
     if (c.key === 'resume') return null;
@@ -223,6 +224,14 @@ async function fillOne(f: Field, opts: PageFillOptions): Promise<FieldReport | n
   }
   if (c.score < ASK_HUMAN) return row(f, 'flagged', c.score, c.key, 'Not sure what this field is');
   const r = await applyDesired(f, res.desired, c.score, c.key, opts);
+  // A salary box that won't take a range (strips the dash, or marks it invalid): one number instead.
+  if (c.key === 'salary' && res.desired.text.includes(' - ') && (r.status === 'flagged' || f.el.getAttribute('aria-invalid') === 'true')) {
+    const plan = salaryPlan(opts.profile.preferences);
+    if (plan) {
+      const again = await applyDesired(f, { text: String(plan.single) }, c.score, c.key, opts, "One number (the box wouldn't take a range)");
+      if (again.status === 'filled') return again;
+    }
+  }
   // Country -> State / County lists reload after a country is picked; let them before going on.
   if (c.key === 'country' || c.key === 'state' || c.key === 'phoneCountryCode') await waitForSettle(300, 2500);
   // A phone's flag dropdown almost always defaults to the right country; not worth stopping for.
@@ -274,7 +283,9 @@ function optionsOf(f: Field): string[] {
 }
 
 /** Below this the AI's answer is shown as a suggestion, not filled in. */
-const AI_MIN_CONFIDENCE = 0.7;
+export const AI_MIN_CONFIDENCE = 0.4;
+/** Below this (and above AI_MIN_CONFIDENCE) it's filled in, but marked for you to review (pink). */
+export const AI_SURE = 0.7;
 
 /** AI answers already given during one page fill, by question + options. */
 const aiMemo = new WeakMap<PageFillOptions, Map<string, AiAnswer | null>>();
@@ -312,8 +323,14 @@ async function aiFill(f: Field, opts: PageFillOptions, note?: string): Promise<F
     return decided(row(f, 'flagged', a.confidence, 'ai', `AI answered "${a.answer.slice(0, 80)}", which isn't one of the options`), 'Rejected — not one of the options; left for you');
   }
   const yesNo = /^(yes|no)$/i.test(a.answer) && !options.length ? { bool: /^yes$/i.test(a.answer) } : {};
-  const r = await applyDesired(f, { text: a.answer, ...yesNo }, Math.min(0.95, a.confidence), 'ai', opts, 'Answered by AI — check it');
-  return decided(r, r.status === 'filled' ? 'Filled in' : `Tried to fill it, but: ${r.reason ?? r.status} — left for you`);
+  const unsure = a.confidence < AI_SURE;
+  // Judge the fill by how well it went in; the AI's own confidence decides only whether you should look.
+  const r = await applyDesired(f, { text: a.answer, ...yesNo }, 1, 'ai', opts, unsure ? `AI wasn't sure (${a.confidence}) — review it` : 'Answered by AI — check it');
+  if (r.status === 'filled') {
+    r.confidence = Math.round(Math.min(0.95, a.confidence) * r.confidence * 100) / 100;
+    if (unsure) r.review = true;
+  }
+  return decided(r, r.status === 'filled' ? (unsure ? 'Filled in — marked pink for you to review' : 'Filled in') : `Tried to fill it, but: ${r.reason ?? r.status} — left for you`);
 }
 
 // ---------- Resume upload ----------

@@ -55,7 +55,7 @@ export interface FillLogEntry {
   page: number;
   message?: string;
   stop?: string;
-  fields: { label: string; key?: string; status: string; value?: string; reason?: string; kind?: string; options?: string[]; required?: boolean }[];
+  fields: { label: string; key?: string; status: string; value?: string; reason?: string; kind?: string; options?: string[]; required?: boolean; review?: boolean }[];
 }
 
 export interface AiLogEntry {

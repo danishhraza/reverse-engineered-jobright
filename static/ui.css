@@ -44,4 +44,5 @@ label.toggle { display: flex; align-items: center; gap: 8px; padding: 4px 0; col
 .pill.filled { background: rgba(16,185,129,.15); color: var(--accent); }
 .pill.flagged { background: var(--warn-bg); color: var(--warn); }
 .pill.skipped { background: var(--border); color: var(--muted); }
+.pill.review { background: rgba(236,72,153,.15); color: #db2777; }
 .pill.failed { background: rgba(239,68,68,.15); color: var(--bad); }

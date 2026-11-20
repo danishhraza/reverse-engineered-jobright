@@ -33,6 +33,8 @@ export function resolveProfile(store: ProfileStore, id: string): Profile {
   const withBase = deepMerge(EMPTY, store.base);
   const merged = deepMerge(withBase, entry.overrides);
   merged.answers = [...(entry.overrides.answers ?? []), ...(store.base.answers ?? [])] as Profile['answers'];
+  const facts = [...(store.base.facts ?? []), ...(entry.overrides.facts ?? [])].filter((f) => typeof f === 'string' && f.trim());
+  if (facts.length) merged.facts = [...new Set(facts)];
   return merged;
 }
 

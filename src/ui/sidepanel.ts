@@ -82,13 +82,14 @@ function render(): void {
     if (!messages.length) reportEl.innerHTML = '<div class="empty muted">Open a job application and press Fill.</div>';
     return;
   }
-  const groups: [string, FieldReport['status'][], boolean][] = [
-    ['Needs you', ['flagged', 'failed'], true],
-    ['Filled', ['filled'], false],
-    ['Skipped', ['skipped'], false],
+  const groups: [string, (r: FieldReport) => boolean, boolean][] = [
+    ['Needs you', (r) => r.status === 'flagged' || r.status === 'failed', true],
+    ['To review (AI not sure)', review, true],
+    ['Filled', (r) => r.status === 'filled' && !review(r), false],
+    ['Skipped', (r) => r.status === 'skipped', false],
   ];
-  for (const [title, statuses, open] of groups) {
-    const items = rows.filter((r) => statuses.includes(r.status));
+  for (const [title, inGroup, open] of groups) {
+    const items = rows.filter(inGroup);
     if (!items.length) continue;
     const det = document.createElement('details');
     det.open = open || title === 'Filled' && items.length < 15;
@@ -97,6 +98,9 @@ function render(): void {
     reportEl.appendChild(det);
   }
 }
+
+/** Filled with an AI answer it wasn't sure of. */
+const review = (r: FieldReport) => r.status === 'filled' && !!r.review;
 
 function esc(s: string): string {
   return s.replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c]!);
@@ -111,7 +115,7 @@ function rowEl(r: FieldReport & { frameId: number }): HTMLElement {
       ${r.value ? `<div class="val">${esc(r.value.slice(0, 140))}</div>` : ''}
       ${r.reason ? `<div class="why">${esc(r.reason)}</div>` : ''}
     </div>
-    <span class="pill ${r.status}">${r.status === 'flagged' ? 'check' : r.status}${r.confidence && r.status !== 'skipped' ? ` ${Math.round(r.confidence * 100)}%` : ''}</span>`;
+    <span class="pill ${review(r) ? 'review' : r.status}">${r.status === 'flagged' ? 'check' : review(r) ? 'review' : r.status}${r.confidence && r.status !== 'skipped' ? ` ${Math.round(r.confidence * 100)}%` : ''}</span>`;
   div.addEventListener('click', () => {
     if (tabId !== undefined && r.id) chrome.tabs.sendMessage(tabId, { type: 'focus', id: r.id }, { frameId: r.frameId }).catch(() => {});
   });

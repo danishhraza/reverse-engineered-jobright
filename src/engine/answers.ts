@@ -1,6 +1,7 @@
 import type { Answer, Education, Profile, Work } from '../types';
 import { currentValue, type Field } from './fields';
 import { norm, patternMatches, type Desired } from './match';
+import { pickSalaryOption, rangeText, salaryPlan, wantsSingle } from './salary';
 
 // Classification (question text -> profile key) and resolution (key -> answer).
 
@@ -434,11 +435,16 @@ export function resolve(c: Classification, p: Profile, field: Field): Resolution
           : { text: "No, I don't have a disability", alts: ['No, I do not have a disability', 'I do not have a disability'], bool: false },
       };
     case 'salary': {
-      const { salaryMin: lo, salaryMax: hi } = p.preferences;
-      if (!lo && !hi) return { flag: 'Set preferences.salaryMin/salaryMax' };
-      if ((field.el as HTMLInputElement).type === 'number') return t(String(Math.round(((lo ?? hi)! + (hi ?? lo)!) / 2)));
-      const fmt = (n: number) => `$${n.toLocaleString('en-US')}`;
-      return t(lo && hi ? `${fmt(lo)} - ${fmt(hi)}` : fmt((lo ?? hi)!));
+      // The job's posted range if it has one, else yours; one number where a range won't go.
+      const plan = salaryPlan(p.preferences);
+      if (!plan) return { flag: 'Set preferences.salaryMin/salaryMax' };
+      const options = optionTexts(field).filter((o) => o.trim());
+      if (options.length) {
+        const pick = pickSalaryOption(options, plan.single);
+        if (pick) return t(pick);
+      }
+      if (wantsSingle(field)) return t(String(plan.single));
+      return t(rangeText(plan.range), [String(plan.single)]);
     }
     case 'startAvailability': {
       // A date box (or its Day / Month / Year parts) wants a date, worked out from "Within 2 months…".
