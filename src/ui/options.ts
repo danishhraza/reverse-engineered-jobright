@@ -24,6 +24,7 @@ async function save(store: ProfileStore): Promise<void> {
     await setSettings({ activeProfileId: store.profiles[0].id });
   }
   await render();
+  await renderFacts();
 }
 
 async function render(): Promise<void> {
@@ -191,6 +192,47 @@ $('llmClearCache').addEventListener('click', async () => {
   $('llmMsg').textContent = 'Cached answers cleared.';
 });
 
+// ---------- About you (facts for the AI) ----------
+
+/** "" = All profiles (base); otherwise a profile id. */
+let factsTarget = '';
+
+async function renderFacts(): Promise<void> {
+  const store = await getStore();
+  const sel = $<HTMLSelectElement>('factsFor');
+  if (!store) {
+    $('factsMsg').textContent = 'Import a profile first.';
+    return;
+  }
+  if (factsTarget && !store.profiles.some((p) => p.id === factsTarget)) factsTarget = '';
+  sel.innerHTML = [`<option value="">All profiles</option>`, ...store.profiles.map((p) => `<option value="${esc(p.id)}">${esc(p.name)} only</option>`)].join('');
+  sel.value = factsTarget;
+  const facts = factsTarget ? store.profiles.find((p) => p.id === factsTarget)?.overrides.facts : store.base.facts;
+  $<HTMLTextAreaElement>('factsText').value = (facts ?? []).join('\n');
+}
+
+$('factsFor').addEventListener('change', () => {
+  factsTarget = $<HTMLSelectElement>('factsFor').value;
+  $('factsMsg').textContent = '';
+  void renderFacts();
+});
+$('factsSave').addEventListener('click', async () => {
+  const store = await getStore();
+  if (!store) return;
+  const facts = $<HTMLTextAreaElement>('factsText')
+    .value.split('\n')
+    .map((l) => l.replace(/^\s*[-*•]\s*/, '').trim())
+    .filter(Boolean);
+  const holder = factsTarget ? store.profiles.find((p) => p.id === factsTarget)?.overrides : store.base;
+  if (!holder) return;
+  if (facts.length) holder.facts = facts;
+  else delete holder.facts;
+  await setStore(store);
+  editor.value = JSON.stringify(store, null, 2);
+  $('factsMsg').textContent = `Saved ${facts.length} fact${facts.length === 1 ? '' : 's'}.`;
+});
+
 render();
 renderAccount();
 renderLlm();
+renderFacts();

@@ -312,6 +312,7 @@ export function doStep(): Promise<void> {
           accountKnown: await accountCreatedOn(host),
           mode,
           onlyEmpty: !!st.keepUrl && st.keepUrl === tab.url,
+          jd: job.jd,
         },
         { frameId },
       )
@@ -492,6 +493,7 @@ export function recordFill(tabId: number, r: FillReport): Promise<void> {
         kind: f.kind,
         options: f.options?.slice(0, 40).map((o) => o.slice(0, 120)),
         required: f.required,
+        review: f.review,
       })),
     };
     j.fillLog = [...(j.fillLog ?? []), entry].slice(-40);

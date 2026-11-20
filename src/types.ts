@@ -85,6 +85,8 @@ export interface Preferences {
   salaryMin?: number;
   salaryMax?: number;
   salaryCurrency?: string;
+  /** The single number to give when a box takes only one (kept inside the job's posted range, if it has one). */
+  salaryPreferred?: number;
   startAvailability?: string;
   noticePeriod?: string;
   willingToRelocate?: boolean;
@@ -110,6 +112,8 @@ export interface Profile {
   eeo: Eeo;
   preferences: Preferences;
   answers: Answer[];
+  /** Things about you the AI should know ("I have 1-2 years of experience", "No security clearance"), one per entry. Base + profile lists add up. */
+  facts?: string[];
   signupEmail?: string;
   /** Your job-site login, added at fill time from Options (never part of the profile JSON). */
   account?: Account;
@@ -186,6 +190,8 @@ export interface FieldReport {
   kind?: string;
   /** Its choices, when it has a list. */
   options?: string[];
+  /** Filled with an answer the AI wasn't sure of: check it (pink on the page). */
+  review?: boolean;
 }
 
 export interface FillReport {

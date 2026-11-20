@@ -14,6 +14,8 @@
       @keyframes p { 50% { opacity: .35; } }
       #counts { display: flex; gap: 6px; flex-wrap: wrap; margin: 10px 0; }
       #counts button { padding: 4px 10px; font-size: 12px; }
+      #bulk { gap: 6px; flex-wrap: wrap; margin: 0 0 10px; font-size: 12px; }
+      #bulk button { padding: 4px 10px; font-size: 12px; }
       #counts button.on { border-color: var(--focus); color: var(--focus); }
       table { width: 100%; border-collapse: collapse; }
       th, td { text-align: left; padding: 8px; border-bottom: 1px solid var(--border); vertical-align: top; }
@@ -56,6 +58,8 @@
       details.page > summary { cursor: pointer; font-size: 12px; }
       details.page .url { font-size: 11px; margin-top: 4px; overflow-wrap: anywhere; }
       details.page table.ailog { background: var(--bg); }
+      .review-head { margin: 14px 0 4px; font-size: 13px; color: #db2777; }
+      table.ailog.review { border-left: 3px solid #ec4899; }
       .claude { border: 1px solid var(--border); border-radius: 10px; padding: 10px 12px; margin: 0 0 12px; background: var(--panel); display: grid; gap: 8px; }
       .claude-head { font-size: 13px; display: flex; gap: 8px; align-items: baseline; flex-wrap: wrap; }
       .claude-row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; font-size: 12px; }
@@ -91,6 +95,11 @@
     <p class="muted" style="margin:0">Jobs open one at a time in a separate window — keep that window open and not minimized (Chrome slows down hidden pages). Anything it can't finish lands in <b>Needs you</b> with its tab kept open: sort it out there, then press <b>Done — continue</b>.</p>
 
     <div id="counts"></div>
+    <div id="bulk" class="row">
+      <button id="saveLogsBtn" title="Step, fill and AI logs of every job in this list, as one file">Save all logs</button>
+      <button id="saveSnapsBtn" title="The same, plus a snapshot of each page still open (Needs you / Ready / Failed tabs)">Save logs + page snapshots</button>
+      <span id="bulkMsg" class="muted"></span>
+    </div>
     <div id="list"></div>
 
     <h2>Add jobs</h2>

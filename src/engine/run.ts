@@ -195,7 +195,10 @@ export async function runSingle(opts: Omit<RunOptions, 'autoAdvance' | 'overwrit
 function summary(fields: FieldReport[]): string {
   const n = (s: FieldReport['status']) => fields.filter((f) => f.status === s).length;
   const flagged = n('flagged');
-  return `Filled ${n('filled')}, ${flagged} need you, ${n('skipped')} skipped.${flagged ? ' Flagged fields are outlined in orange.' : ''}`;
+  const review = fields.filter((f) => f.status === 'filled' && f.review).length;
+  return `Filled ${n('filled')}${review ? ` (${review} to review)` : ''}, ${flagged} need you, ${n('skipped')} skipped.${flagged ? ' Flagged fields are outlined in orange.' : ''}${
+    review ? " AI answers it wasn't sure of are outlined in pink." : ''
+  }`;
 }
 
 // ---------- Highlighting ----------
@@ -208,6 +211,7 @@ function ensureStyles(): void {
   s.id = STYLE_ID;
   s.textContent = `
     [data-rej-state="flagged"] { outline: 2px solid #f59e0b !important; outline-offset: 2px !important; border-radius: 4px; }
+    [data-rej-state="review"] { outline: 2px solid #ec4899 !important; outline-offset: 2px !important; border-radius: 4px; background-color: rgba(236,72,153,.07) !important; }
     [data-rej-state="filled"] { outline: 1px solid rgba(16,185,129,.55) !important; outline-offset: 1px !important; }
     [data-rej-state="focus"] { outline: 3px solid #6366f1 !important; outline-offset: 3px !important; }
   `;
@@ -228,8 +232,9 @@ function highlight(fields: FieldReport[]): void {
     if (!el) continue;
     const t = visualTarget(el);
     if (f.status === 'flagged' || f.status === 'filled') {
-      t.setAttribute('data-rej-state', f.status);
-      t.title = f.status === 'flagged' ? `Autofill: ${f.reason ?? 'check this'}` : t.title;
+      const state = f.status === 'filled' && f.review ? 'review' : f.status;
+      t.setAttribute('data-rej-state', state);
+      t.title = state !== 'filled' ? `Autofill: ${f.reason ?? 'check this'}` : t.title;
     }
   }
 }

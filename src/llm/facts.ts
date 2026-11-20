@@ -17,6 +17,10 @@ export function profileFacts(p: Profile): string {
     );
   }
   if (p.eeo.over18 !== undefined) lines.push(`Over 18: ${p.eeo.over18 ? 'yes' : 'no'}`);
+  if (p.facts?.length) {
+    lines.push('Facts the candidate stated about themself (always true; they settle questions on these topics):');
+    for (const f of p.facts.slice(0, 60)) lines.push(`- ${f.trim().slice(0, 300)}`);
+  }
   if (p.headline) lines.push(`Headline: ${p.headline}`);
   if (p.education.length) {
     lines.push('Education:');
@@ -30,7 +34,13 @@ export function profileFacts(p: Profile): string {
   }
   if (p.skills.length) lines.push(`Skills: ${p.skills.slice(0, 30).join(', ')}`);
   const pref = p.preferences;
-  if (pref.salaryMin || pref.salaryMax) lines.push(`Salary expectation: ${[pref.salaryMin, pref.salaryMax].filter(Boolean).join(' – ')} ${pref.salaryCurrency ?? 'USD'}`);
+  if (pref.salaryMin || pref.salaryMax) {
+    lines.push(
+      `Salary expectation: ${[pref.salaryMin, pref.salaryMax].filter(Boolean).join(' – ')} ${pref.salaryCurrency ?? 'USD'}${
+        pref.salaryPreferred ? ` (as one number: ${pref.salaryPreferred})` : ''
+      }; if the job posts a pay range, answer within that range instead`,
+    );
+  }
   if (pref.startAvailability) lines.push(`Can start: ${pref.startAvailability}`);
   if (pref.noticePeriod) lines.push(`Notice period: ${pref.noticePeriod}`);
   if (pref.willingToRelocate !== undefined) lines.push(`Willing to relocate: ${pref.willingToRelocate ? 'yes' : 'no'}`);

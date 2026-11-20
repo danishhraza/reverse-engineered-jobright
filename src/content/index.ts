@@ -3,6 +3,8 @@ import { getLearned, getSettings } from '../profile/storage';
 import { loadSetup } from './context';
 import { probe, step, submitReady, type StepRequest } from './autopilot';
 import { snapshot } from './snapshot';
+import { jobDescription } from './jd';
+import { setJobText } from '../engine/salary';
 import { fillPastedAnswers, type PastedAnswer } from './paste-answers';
 import { looksLikeForm } from '../engine/fields';
 import { cancel } from '../engine/control';
@@ -63,6 +65,8 @@ async function startFill(profileId?: string, mode?: FillMode, page?: number): Pr
   const setup = await loadSetup(profileId);
   if ('error' in setup) return { started: false, reason: setup.error };
   const { settings, profileId: id } = setup;
+  // A pay range in the description on this page answers the salary question.
+  setJobText(jobDescription());
 
   stopping = false;
   setFab('busy', 'Filling…');

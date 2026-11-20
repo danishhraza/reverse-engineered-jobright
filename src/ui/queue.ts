@@ -63,6 +63,78 @@ function host(url: string): string {
   }
 }
 
+/** In the list you're looking at (the status filter at the top). */
+function inFilter(j: QueueJob): boolean {
+  if (filter === 'all') return true;
+  if (filter === 'done') return j.status === 'skipped' || j.status === 'failed';
+  if (filter === 'queued') return j.status === 'queued' || j.status === 'running';
+  return j.status === filter;
+}
+
+const hasLogs = (j: QueueJob) => !!(j.log.length || j.fillLog?.length || j.aiLog?.length);
+
+/** One job's logs, as in its "Download log" file. */
+function jobLog(j: QueueJob) {
+  const { url, company, title, profile, status, reason, resumeUrl, attempts, log, fillLog, aiLog, ai, jd } = j;
+  return { url, company, title, profile, status, reason, resumeUrl, attempts, ai, log, fillLog, aiLog, jd };
+}
+
+function download(text: string, type: string, name: string): void {
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(new Blob([text], { type }));
+  a.download = name;
+  a.click();
+  setTimeout(() => URL.revokeObjectURL(a.href), 10000);
+}
+
+type FramePart = { url: string; title: string; top: boolean; fields: unknown[]; html: string };
+let saving = false;
+
+/**
+ * Every job in the list you're looking at, with its logs (and a snapshot of each
+ * page still open, if asked), as one JSON file — to hand over for fixing in one go.
+ */
+async function saveAll(withSnapshots: boolean): Promise<void> {
+  const jobs = (await getQueue()).filter((j) => inFilter(j) && hasLogs(j));
+  if (!jobs.length) return void ($('bulkMsg').textContent = 'No logs in this list yet.');
+  saving = true;
+  $<HTMLButtonElement>('saveLogsBtn').disabled = $<HTMLButtonElement>('saveSnapsBtn').disabled = true;
+  let snaps = 0;
+  let closed = 0;
+  try {
+    const out = [];
+    for (const [i, j] of jobs.entries()) {
+      const entry: ReturnType<typeof jobLog> & { snapshot?: { at: string; frames: FramePart[] } | string } = jobLog(j);
+      if (withSnapshots) {
+        $('bulkMsg').textContent = `Snapshotting page ${i + 1} of ${jobs.length}…`;
+        const alive = j.tabId !== undefined && (await chrome.tabs.get(j.tabId).then(() => true, () => false));
+        const frames: FramePart[] | undefined = alive
+          ? await chrome.runtime.sendMessage({ type: 'snapshotTab', tabId: j.tabId }).catch(() => undefined)
+          : undefined;
+        if (frames?.length) {
+          entry.snapshot = { at: new Date().toISOString(), frames };
+          snaps++;
+        } else {
+          entry.snapshot = alive ? "Couldn't read the page (it may be loading or reloaded)" : 'Its tab is closed';
+          closed++;
+        }
+      }
+      out.push(entry);
+    }
+    const name = `autopilot-${withSnapshots ? 'logs-snapshots' : 'logs'}-${filter}-${today()}-${new Date().toTimeString().slice(0, 5).replace(':', '')}.json`;
+    download(JSON.stringify({ savedAt: new Date().toISOString(), list: filter, jobs: out }, null, 1), 'application/json', name);
+    $('bulkMsg').textContent = `Saved ${name}: ${jobs.length} job${jobs.length === 1 ? '' : 's'}${
+      withSnapshots ? `, ${snaps} page snapshot${snaps === 1 ? '' : 's'}${closed ? ` (${closed} without: tab closed or unreadable)` : ''}` : ''
+    }.`;
+  } finally {
+    saving = false;
+    void render();
+  }
+}
+
+$('saveLogsBtn').addEventListener('click', () => void saveAll(false));
+$('saveSnapsBtn').addEventListener('click', () => void saveAll(true));
+
 async function render(): Promise<void> {
   const [q, st, ap] = await Promise.all([getQueue(), getRunner(), getAutopilot()]);
   const started = st.startedByDay[today()] ?? 0;
@@ -103,9 +175,10 @@ async function render(): Promise<void> {
   todayLine.textContent = `Today: ${started}/${ap.dailyCap} started, ${appliedToday} applied${aiCalls ? ` · AI in this list: ${aiCalls} calls, $${aiCost.toFixed(4)}` : ''}`;
   $('counts').appendChild(todayLine);
 
-  const shown = q.filter((j) =>
-    filter === 'all' ? true : filter === 'done' ? j.status === 'skipped' || j.status === 'failed' : filter === 'queued' ? j.status === 'queued' || j.status === 'running' : j.status === filter,
-  );
+  const shown = q.filter(inFilter);
+  const withLogs = shown.filter(hasLogs).length;
+  $<HTMLButtonElement>('saveLogsBtn').disabled = $<HTMLButtonElement>('saveSnapsBtn').disabled = !withLogs || saving;
+  $('saveLogsBtn').textContent = `Save all logs (${withLogs})`;
   // Things waiting on you first, then the running job, then the queue in order.
   const order: JobStatus[] = ['needs-you', 'ready', 'running', 'queued', 'failed', 'applied', 'skipped'];
   shown.sort((a, b) => order.indexOf(a.status) - order.indexOf(b.status) || Number(!!b.priority) - Number(!!a.priority));
@@ -152,15 +225,7 @@ function row(j: QueueJob): HTMLTableRowElement[] {
   const dl = document.createElement('button');
   dl.textContent = 'Download log';
   dl.title = 'Step log, fill log and AI log for this job, as one JSON file';
-  dl.addEventListener('click', () => {
-    const { url, company, title, profile, status, reason, resumeUrl, attempts, log, fillLog, aiLog, ai } = j;
-    const blob = new Blob([JSON.stringify({ url, company, title, profile, status, reason, resumeUrl, attempts, ai, log, fillLog, aiLog }, null, 2)], { type: 'application/json' });
-    const a = document.createElement('a');
-    a.href = URL.createObjectURL(blob);
-    a.download = `autopilot-log-${host(j.url)}-${today()}.json`;
-    a.click();
-    setTimeout(() => URL.revokeObjectURL(a.href), 5000);
-  });
+  dl.addEventListener('click', () => download(JSON.stringify(jobLog(j), null, 2), 'application/json', `autopilot-log-${host(j.url)}-${today()}.json`));
   acts.appendChild(dl);
   for (const [action, text, cls] of ACTIONS[j.status]) {
     const b = document.createElement('button');

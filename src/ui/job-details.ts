@@ -40,6 +40,20 @@ export function needsYou(j: QueueJob): Unanswered[] {
     });
 }
 
+/** Fields the last page fill filled with an AI answer it wasn't sure of (pink on the page). */
+export function toReview(j: QueueJob): { label: string; value?: string; reason?: string }[] {
+  return (j.fillLog?.at(-1)?.fields ?? []).filter((f) => f.status === 'filled' && f.review);
+}
+
+function reviewTable(j: QueueJob): string {
+  const items = toReview(j);
+  if (!items.length) return '';
+  return `<h4 class="review-head">To review: the AI filled these but wasn't sure <span class="muted">(pink on the page)</span></h4>
+    <table class="ailog review"><thead><tr><th>Question</th><th>What it put in</th></tr></thead><tbody>${items
+      .map((f) => `<tr><td>${esc(f.label)}</td><td>${esc(f.value ?? '')}</td></tr>`)
+      .join('')}</tbody></table>`;
+}
+
 /** The "ask your own Claude" box: copy a prompt, paste the reply back, fill. */
 function claudeBox(j: QueueJob): string {
   const qs = questionsFor(j);
@@ -58,7 +72,7 @@ function claudeBox(j: QueueJob): string {
 function needsPanel(j: QueueJob): string {
   const items = needsYou(j);
   const head = (j.reason ? `<p class="reason">${esc(j.reason)}</p>` : '') + claudeBox(j);
-  if (!items.length) return `${head}<p class="muted">Nothing left unanswered on the last page it filled.</p>`;
+  if (!items.length) return `${head}<p class="muted">Nothing left unanswered on the last page it filled.</p>${reviewTable(j)}`;
   return `${head}<table class="ailog"><thead><tr><th>Question</th><th>Why it stopped</th><th>In the box now</th><th>AI suggested</th></tr></thead><tbody>${items
     .map(
       (n) =>
@@ -66,7 +80,7 @@ function needsPanel(j: QueueJob): string {
           n.ai ? esc(n.ai) : '<span class="muted">—</span>'
         }</td></tr>`,
     )
-    .join('')}</tbody></table>`;
+    .join('')}</tbody></table>${reviewTable(j)}`;
 }
 
 const BAD = /\b(fail(ed)?|error|stuck|couldn.?t|could not|timed? ?out|gave up)\b/i;
@@ -95,7 +109,8 @@ function fillPanel(j: QueueJob): string {
       const n = (...s: string[]) => e.fields.filter((f) => s.includes(f.status)).length;
       const counts = (
         [
-          [n('filled'), 'filled', 'filled'],
+          [n('filled') - e.fields.filter((f) => f.status === 'filled' && f.review).length, 'filled', 'filled'],
+          [e.fields.filter((f) => f.status === 'filled' && f.review).length, 'to review', 'review'],
           [n('flagged', 'failed'), 'need you', 'flagged'],
           [n('skipped'), 'skipped', 'skipped'],
         ] as [number, string, string][]
@@ -110,8 +125,8 @@ function fillPanel(j: QueueJob): string {
       <table class="ailog"><thead><tr><th>Field</th><th>Result</th><th>Value</th><th>Why</th></tr></thead><tbody>${e.fields
         .map(
           (f) =>
-            `<tr><td>${esc(f.label)}${f.key ? ` <span class="muted">(${esc(f.key)})</span>` : ''}</td><td><span class="pill ${pillFor(f.status)}">${esc(
-              f.status,
+            `<tr><td>${esc(f.label)}${f.key ? ` <span class="muted">(${esc(f.key)})</span>` : ''}</td><td><span class="pill ${f.review && f.status === 'filled' ? 'review' : pillFor(f.status)}">${esc(
+              f.review && f.status === 'filled' ? 'review' : f.status,
             )}</span></td><td>${esc(f.value ?? '')}</td><td class="muted">${esc(f.reason ?? '')}</td></tr>`,
         )
         .join('')}</tbody></table></details>`;
@@ -147,8 +162,10 @@ function aiPanel(j: QueueJob): string {
 /** One line under the job's status: how many unanswered, pages, AI calls. */
 export function summaryChips(j: QueueJob): string {
   const need = needsYou(j).length;
+  const review = toReview(j).length;
   return [
     need ? `<span class="pill needs-you">${need} unanswered</span>` : '',
+    review ? `<span class="pill review">${review} to review</span>` : '',
     j.fillLog?.length ? `<span class="muted">${plural(j.fillLog.length, 'page')} filled</span>` : '',
     j.aiLog?.length ? `<span class="muted">${plural(j.aiLog.length, 'AI call')}</span>` : '',
   ]
@@ -158,7 +175,7 @@ export function summaryChips(j: QueueJob): string {
 
 /** Which tab to open first: what needs you, when something does. */
 export function firstTab(j: QueueJob): Tab {
-  return needsYou(j).length && (j.status === 'needs-you' || j.status === 'ready') ? 'needs' : 'steps';
+  return (needsYou(j).length || toReview(j).length) && (j.status === 'needs-you' || j.status === 'ready') ? 'needs' : 'steps';
 }
 
 export interface ClaudeHooks {
