@@ -182,6 +182,10 @@ export interface FieldReport {
   confidence: number;
   reason?: string;
   required?: boolean;
+  /** What kind of box it is (text, textarea, select, file…), for asking someone else to answer it. */
+  kind?: string;
+  /** Its choices, when it has a list. */
+  options?: string[];
 }
 
 export interface FillReport {

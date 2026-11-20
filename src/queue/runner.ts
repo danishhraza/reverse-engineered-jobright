@@ -336,6 +336,11 @@ export function onStepResult(stepId: number, outcome: StepOutcome, tabId?: numbe
     if (!job || (tabId !== undefined && job.tabId !== tabId)) return;
     st.inFlight = undefined;
     await saveRunner(st);
+    // The longest description seen on the way (the job page usually; the form page may have a shorter one).
+    if (outcome.jd && outcome.jd.length > (job.jd?.length ?? 0) + 200) {
+      job.jd = outcome.jd;
+      await saveQueue(q);
+    }
     switch (outcome.kind) {
       case 'acted': {
         log(job, outcome.action);
@@ -478,7 +483,16 @@ export function recordFill(tabId: number, r: FillReport): Promise<void> {
       page: r.page,
       message: r.message,
       stop: r.stop,
-      fields: r.fields.slice(0, 150).map((f) => ({ label: f.label.slice(0, 160), key: f.key, status: f.status, value: f.value?.slice(0, 160), reason: f.reason?.slice(0, 200) })),
+      fields: r.fields.slice(0, 150).map((f) => ({
+        label: f.label.slice(0, 300),
+        key: f.key,
+        status: f.status,
+        value: f.value?.slice(0, 160),
+        reason: f.reason?.slice(0, 200),
+        kind: f.kind,
+        options: f.options?.slice(0, 40).map((o) => o.slice(0, 120)),
+        required: f.required,
+      })),
     };
     j.fillLog = [...(j.fillLog ?? []), entry].slice(-40);
     await saveQueue(q);
@@ -772,4 +786,54 @@ export function queueAction(a: QueueAction): Promise<{ ok: boolean; added?: numb
     }
     return { ok: true };
   });
+}
+
+// ---------- Answers pasted from Claude ----------
+
+export interface PastedAnswerMsg {
+  label: string;
+  text: string;
+  coverLetter?: boolean;
+}
+
+/**
+ * Fill answers you got from Claude into the job's open tab (every frame: the
+ * form may be in one). Each answer counts once, in whichever frame has it.
+ */
+export async function pasteAnswers(
+  jobId: string,
+  answers: PastedAnswerMsg[],
+): Promise<{ ok: boolean; error?: string; filled: string[]; failed: { label: string; reason: string }[]; missing: string[] }> {
+  const empty = { filled: [], failed: [], missing: [] };
+  const job = (await getQueue()).find((j) => j.id === jobId);
+  if (!job) return { ok: false, error: 'Job not found', ...empty };
+  const tab = await tabAlive(job.tabId);
+  if (!tab?.id) return { ok: false, error: "The job's tab is closed — press Open, then fill again", ...empty };
+  const frames = (await chrome.webNavigation.getAllFrames({ tabId: tab.id })) ?? [{ frameId: 0 }];
+  type Part = { filled: string[]; failed: { label: string; reason: string }[]; notHere: string[] } | null;
+  const parts: Part[] = await Promise.all(
+    frames.map((f) =>
+      chrome.tabs.sendMessage(tab.id!, { type: 'pasteAnswers', answers, profileId: job.profile }, { frameId: f.frameId }).catch(() => null) as Promise<Part>,
+    ),
+  );
+  const filled = new Set<string>();
+  const failed = new Map<string, string>();
+  for (const p of parts) {
+    if (!p) continue;
+    p.filled.forEach((l) => filled.add(l));
+    p.failed.forEach((x) => failed.set(x.label, x.reason));
+  }
+  for (const l of filled) failed.delete(l);
+  const missing = answers.map((a) => a.label).filter((l) => !filled.has(l) && !failed.has(l));
+  await locked(async () => {
+    const q = await getQueue();
+    const j = q.find((x) => x.id === jobId);
+    if (!j) return;
+    const short = (l: string) => `"${l.slice(0, 40)}${l.length > 40 ? '…' : ''}"`;
+    log(j, `Filled ${filled.size} answer${filled.size === 1 ? '' : 's'} from Claude${filled.size ? `: ${[...filled].map(short).join(', ')}` : ''}`);
+    if (failed.size || missing.length) log(j, `Not filled from Claude: ${[...failed.keys(), ...missing].map(short).join(', ')}`);
+    j.updatedAt = now();
+    await saveQueue(q);
+  });
+  return { ok: true, filled: [...filled], failed: [...failed].map(([label, reason]) => ({ label, reason })), missing };
 }

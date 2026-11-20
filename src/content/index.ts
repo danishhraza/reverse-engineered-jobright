@@ -3,6 +3,7 @@ import { getLearned, getSettings } from '../profile/storage';
 import { loadSetup } from './context';
 import { probe, step, submitReady, type StepRequest } from './autopilot';
 import { snapshot } from './snapshot';
+import { fillPastedAnswers, type PastedAnswer } from './paste-answers';
 import { looksLikeForm } from '../engine/fields';
 import { cancel } from '../engine/control';
 import { sleep, waitForSettle } from '../engine/dom';
@@ -22,6 +23,7 @@ type Msg =
   | { type: 'autoProbe' }
   | { type: 'submitReady'; jobId: string; profileId?: string }
   | { type: 'snapshot' }
+  | { type: 'pasteAnswers'; answers: PastedAnswer[]; profileId?: string }
   | ({ type: 'autoStep'; step: number } & StepRequest);
 
 // The form control you last clicked or tabbed into, for "fill just this field".
@@ -164,6 +166,10 @@ chrome.runtime.onMessage.addListener((msg: Msg, _sender, reply) => {
   if (msg.type === 'snapshot') {
     reply(snapshot());
     return;
+  }
+  if (msg.type === 'pasteAnswers') {
+    fillPastedAnswers(msg.answers, msg.profileId).then(reply, (e) => reply({ filled: [], failed: [], notHere: msg.answers.map((a) => a.label), error: String(e) }));
+    return true;
   }
   if (msg.type === 'autoStep') {
     // Answer now; the result comes back as its own message (a step can take minutes).

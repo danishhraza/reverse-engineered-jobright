@@ -179,8 +179,14 @@ function row(j: QueueJob): HTMLTableRowElement[] {
     details.set(j.id, t);
     render();
   };
-  return [tr, detailsRow(j, tab, pick)];
+  return [tr, detailsRow(j, tab, pick, claudeHooks)];
 }
+
+/** "Ask your Claude": copy the prompt; fill the pasted answers into the job's tab (through the background). */
+const claudeHooks = {
+  copy: (text: string) => navigator.clipboard.writeText(text),
+  fill: (jobId: string, answers: { label: string; text: string; coverLetter?: boolean }[]) => chrome.runtime.sendMessage({ type: 'pasteAnswers', jobId, answers }),
+};
 
 // ---------- Adding jobs ----------
 
@@ -280,7 +286,20 @@ $<HTMLInputElement>('autoSubmit').addEventListener('change', (e) => {
   setAutopilot({ autoSubmit: on });
 });
 
+// Don't redraw under you while you're pasting a reply into a job's Claude box; catch up when you leave it.
+let pendingRender = false;
+const typing = () => document.activeElement instanceof HTMLTextAreaElement && document.activeElement.classList.contains('claude-reply');
+document.addEventListener('focusout', () => {
+  if (pendingRender) setTimeout(() => {
+    if (!typing() && pendingRender) {
+      pendingRender = false;
+      render();
+    }
+  }, 0);
+});
 chrome.storage.onChanged.addListener((changes, area) => {
-  if (area === 'local' && (changes.queue || changes.runner || changes.autopilot)) render();
+  if (area !== 'local' || !(changes.queue || changes.runner || changes.autopilot)) return;
+  if (typing()) pendingRender = true;
+  else render();
 });
 render();

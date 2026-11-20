@@ -7,6 +7,7 @@ import type { FillReport } from '../types';
 import type { Probe, StepOutcome } from '../queue/types';
 import { loadSetup } from './context';
 import { candidates, findBlocker, looksLoading, markTried } from './blockers';
+import { jobDescription } from './jd';
 
 // Autopilot, page side. The background asks every frame what it sees
 // (probe), picks the frame that matters, and asks it to take one step: click
@@ -109,9 +110,17 @@ export async function step(req: StepRequest, onReport: (r: FillReport) => void):
   const p = probe();
   if (p.kind === 'blocker') return blockerStep();
   if (p.kind === 'account') return accountStep(req, onReport);
-  if (p.kind === 'form') return formStep(req, onReport);
-  if (p.kind === 'apply') return applyStep();
+  // Read the description before pressing anything: Apply usually leaves the job page.
+  if (p.kind === 'apply') return withJd(applyStep(), jobDescription());
+  if (p.kind === 'form') {
+    const jd = jobDescription();
+    return withJd(await formStep(req, onReport), jd);
+  }
   return { kind: 'nothing' };
+}
+
+function withJd(o: StepOutcome, jd: string): StepOutcome {
+  return jd ? { ...o, jd } : o;
 }
 
 /** Click `el`; an ordinary link is opened by the background instead (script clicks can't open new tabs). */

@@ -45,6 +45,8 @@ export interface QueueJob {
   fillLog?: FillLogEntry[];
   /** Last few things the runner did, newest last. */
   log: string[];
+  /** The job description, read off the job page (for asking Claude about the questions). */
+  jd?: string;
 }
 
 export interface FillLogEntry {
@@ -53,7 +55,7 @@ export interface FillLogEntry {
   page: number;
   message?: string;
   stop?: string;
-  fields: { label: string; key?: string; status: string; value?: string; reason?: string }[];
+  fields: { label: string; key?: string; status: string; value?: string; reason?: string; kind?: string; options?: string[]; required?: boolean }[];
 }
 
 export interface AiLogEntry {
@@ -162,7 +164,7 @@ export interface Probe {
 export const PROBE_RANK: ProbeKind[] = ['captcha', 'verify', 'blocker', 'account', 'form', 'applied', 'apply', 'closed', 'loading', 'none'];
 
 /** What one step on a page found or did (content script -> background). */
-export type StepOutcome =
+export type StepOutcome = (
   /** Clicked something (Apply, Sign in, Create account); the page will change. */
   | {
       kind: 'acted';
@@ -180,4 +182,8 @@ export type StepOutcome =
   | { kind: 'skipped'; reason: string }
   | { kind: 'failed'; reason: string }
   /** Nothing to do in this frame (no form, no Apply button). */
-  | { kind: 'nothing' };
+  | { kind: 'nothing' }
+) & {
+  /** The job description, when this page shows one (kept on the job for "Copy prompt for Claude"). */
+  jd?: string;
+};
