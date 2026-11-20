@@ -42,9 +42,9 @@ export function questionsFor(j: QueueJob): AskQuestion[] {
 }
 
 function describe(q: AskQuestion): string {
-  if (q.coverLetter) return 'a cover letter for this job (plain text, 250–350 words, no address block or date; start with "Dear Hiring Team,")';
+  if (q.coverLetter) return 'a cover letter for this job (plain text, 200-300 words, no address block or date; open with "Hi <company> team," and sign off with just my first name)';
   if (q.options?.length) return `pick exactly one of: ${q.options.map((o) => `"${o}"`).join(' | ')}`;
-  if (q.kind === 'textarea') return 'a written answer (about 80–150 words)';
+  if (q.kind === 'textarea') return 'a written answer (about 60-120 words; shorter is fine if it says it)';
   return 'a short answer';
 }
 
@@ -63,7 +63,12 @@ export function buildPrompt(j: QueueJob, qs: AskQuestion[]): string {
     'Questions:',
     ...qs.map((q, i) => `[${i + 1}] ${q.label.trim()}${q.required ? ' (required)' : ''}\n    → ${describe(q)}${q.current ? `\n    (a draft I don't love: "${q.current.slice(0, 200)}")` : ''}`),
     '',
-    'Rules:',
+    'How to write it:',
+    "- Sound like me, a real person typing this myself: conversational, a bit casual, still someone they'd want to hire. Not stiff, not salesy, not corporate.",
+    "- Use contractions (I'm, I've, it's), plain everyday words and short sentences mixed with longer ones.",
+    '- Lead with something concrete: a real project, a number, or the specific thing about this company or role that got my attention. Skip openers that restate the question.',
+    `- No AI tells: no em dashes, no "I'm excited/thrilled to", "passionate", "leverage", "spearheaded", "delve", "fast-paced", "dynamic", "synergy", "aligns with", "resonates", "testament", "unique blend", "I'm confident that". No lists of three adjectives, no bullet points, headings or bold.`,
+    `- Don't wrap up with a summary or "I look forward to…" line; just stop when the point is made.`,
     '- For a question with choices, reply with one choice copied word for word, nothing else.',
     '- Be specific to this company and role; no placeholders like [Company] and nothing you would need me to fill in.',
     "- Don't invent experience I don't have.",
