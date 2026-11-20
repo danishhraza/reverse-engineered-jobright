@@ -176,7 +176,19 @@ export async function fillSingle(f: Field, opts: PageFillOptions): Promise<Field
 function row(f: Field, status: FieldReport['status'], confidence: number, key?: string, reason?: string, value?: string): FieldReport {
   // Never show a password in the side panel (reports are kept in session storage).
   if (value && f.inputType === 'password') value = '••••••••';
-  return { id: f.id, label: f.label || '(unlabeled field)', key, status, confidence: Math.round(confidence * 100) / 100, reason, value, required: f.required };
+  return { id: f.id, label: f.label || '(unlabeled field)', key, status, confidence: Math.round(confidence * 100) / 100, reason, value, required: f.required, kind: f.kind, options: optionList(f) };
+}
+
+/** A field's choices as text (select options, radio labels, a dropdown's peeked list), placeholders left out. */
+function optionList(f: Field): string[] | undefined {
+  const raw =
+    f.kind === 'select'
+      ? Array.from((f.el as HTMLSelectElement).options).map((o) => cleanText(o))
+      : f.choices?.length
+        ? f.choices.map((c) => c.label)
+        : (f.peeked ?? []);
+  const out = raw.map((o) => squash(o)).filter((o) => o && !isPlaceholderOption(o));
+  return out.length ? out.slice(0, 40) : undefined;
 }
 
 async function fillOne(f: Field, opts: PageFillOptions): Promise<FieldReport | null> {

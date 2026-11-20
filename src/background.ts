@@ -5,7 +5,7 @@ import type { AiQuestion } from './engine/fill';
 import { norm } from './engine/match';
 import { askGuide, askModel } from './llm/openrouter';
 import { getAiAnswers, getLlm, saveAiAnswer } from './queue/store';
-import { aiDecided, noteOnJob, onAlarm, recordFill, onPageLoaded, onReadyResult, onStepResult, recordAi, onTabCreated, onTabRemoved, pauseRunner, queueAction, recover, startRunner, type QueueAction } from './queue/runner';
+import { aiDecided, noteOnJob, onAlarm, pasteAnswers, recordFill, onPageLoaded, onReadyResult, onStepResult, recordAi, onTabCreated, onTabRemoved, pauseRunner, queueAction, recover, startRunner, type QueueAction } from './queue/runner';
 
 // Routes "fill this tab" to every frame and keeps the latest report per frame
 // (chrome.storage.session) so the side panel can show it when opened later.
@@ -284,6 +284,10 @@ chrome.runtime.onMessage.addListener((msg, sender, reply) => {
         reply({ error: llm.apiKey ? 'AI answers are turned off' : 'No OpenRouter key saved' });
       })
       .catch((e) => reply({ error: String(e) }));
+    return true;
+  }
+  if (msg.type === 'pasteAnswers') {
+    pasteAnswers(msg.jobId, msg.answers).then(reply, (e) => reply({ ok: false, error: String(e) }));
     return true;
   }
   if (msg.type === 'queue') {

@@ -1,4 +1,6 @@
 import type { QueueJob } from '../queue/types';
+import type { PastedAnswer } from '../content/paste-answers';
+import { buildPrompt, parseAnswers, questionsFor, type AskQuestion } from './claude-prompt';
 
 // A job's details on the Autopilot page, in tabs: what still needs you, the
 // steps taken, every page fill, and every AI call.
@@ -38,9 +40,24 @@ export function needsYou(j: QueueJob): Unanswered[] {
     });
 }
 
+/** The "ask your own Claude" box: copy a prompt, paste the reply back, fill. */
+function claudeBox(j: QueueJob): string {
+  const qs = questionsFor(j);
+  if (!qs.length) return '';
+  const jd = j.jd ? `job description (${Math.round(j.jd.length / 100) / 10}k chars)` : 'no job description captured — Claude gets the link';
+  return `<div class="claude">
+    <div class="claude-head"><b>Ask your Claude</b> <span class="muted">${qs.length} question${qs.length === 1 ? '' : 's'} + ${jd}</span></div>
+    <div class="claude-row"><button type="button" class="copy-claude primary">Copy prompt for Claude</button>
+      <span class="muted">Paste it in your Claude project, then paste its reply below.</span></div>
+    <textarea class="claude-reply" rows="5" placeholder="Paste Claude's reply here — it starts with [1]"></textarea>
+    <div class="claude-preview"></div>
+    <div class="claude-row"><button type="button" class="fill-claude" disabled>Fill these answers</button> <span class="claude-msg muted"></span></div>
+  </div>`;
+}
+
 function needsPanel(j: QueueJob): string {
   const items = needsYou(j);
-  const head = j.reason ? `<p class="reason">${esc(j.reason)}</p>` : '';
+  const head = (j.reason ? `<p class="reason">${esc(j.reason)}</p>` : '') + claudeBox(j);
   if (!items.length) return `${head}<p class="muted">Nothing left unanswered on the last page it filled.</p>`;
   return `${head}<table class="ailog"><thead><tr><th>Question</th><th>Why it stopped</th><th>In the box now</th><th>AI suggested</th></tr></thead><tbody>${items
     .map(
@@ -144,8 +161,79 @@ export function firstTab(j: QueueJob): Tab {
   return needsYou(j).length && (j.status === 'needs-you' || j.status === 'ready') ? 'needs' : 'steps';
 }
 
+export interface ClaudeHooks {
+  copy: (text: string) => Promise<void>;
+  fill: (jobId: string, answers: PastedAnswer[]) => Promise<{ ok: boolean; error?: string; filled: string[]; failed: { label: string; reason: string }[]; missing: string[] }>;
+}
+
+/** What you've pasted per job, and the questions the copied prompt asked (kept across re-renders). */
+const drafts = new Map<string, string>();
+const notes = new Map<string, string>();
+const asked = new Map<string, AskQuestion[]>();
+
+function wireClaude(tr: HTMLElement, j: QueueJob, hooks: ClaudeHooks): void {
+  const box = tr.querySelector<HTMLElement>('.claude');
+  if (!box) return;
+  const copyBtn = box.querySelector<HTMLButtonElement>('.copy-claude')!;
+  const reply = box.querySelector<HTMLTextAreaElement>('.claude-reply')!;
+  const preview = box.querySelector<HTMLElement>('.claude-preview')!;
+  const fillBtn = box.querySelector<HTMLButtonElement>('.fill-claude')!;
+  const msg = box.querySelector<HTMLElement>('.claude-msg')!;
+  const questions = () => asked.get(j.id) ?? questionsFor(j);
+  const parsed = () => {
+    const qs = questions();
+    return parseAnswers(reply.value, qs.length).map((text, i) => ({ q: qs[i], text }));
+  };
+  const show = () => {
+    drafts.set(j.id, reply.value);
+    const rows = parsed();
+    const got = rows.filter((r) => r.text).length;
+    fillBtn.disabled = !got;
+    preview.innerHTML = reply.value.trim()
+      ? `<ol>${rows
+          .map((r) => `<li><span class="muted">${esc(r.q.label.slice(0, 90))}</span><br>${r.text ? esc(r.text.length > 220 ? `${r.text.slice(0, 220)}…` : r.text) : '<i class="muted">no answer found in the reply</i>'}</li>`)
+          .join('')}</ol>`
+      : '';
+  };
+  reply.value = drafts.get(j.id) ?? '';
+  const say = (text: string) => {
+    msg.textContent = text;
+    notes.set(j.id, text);
+  };
+  msg.textContent = notes.get(j.id) ?? '';
+  show();
+  reply.addEventListener('input', show);
+  copyBtn.addEventListener('click', async () => {
+    const qs = questionsFor(j);
+    asked.set(j.id, qs);
+    try {
+      await hooks.copy(buildPrompt(j, qs));
+      say('Copied — paste it into Claude.');
+    } catch {
+      say("Couldn't copy (clipboard blocked).");
+    }
+    show();
+  });
+  fillBtn.addEventListener('click', async () => {
+    const answers = parsed()
+      .filter((r) => r.text)
+      .map((r) => ({ label: r.q.label, text: r.text, coverLetter: r.q.coverLetter }));
+    fillBtn.disabled = true;
+    say(`Filling ${answers.length}…`);
+    const r = await hooks.fill(j.id, answers).catch((e) => ({ ok: false, error: String(e), filled: [], failed: [], missing: [] }));
+    fillBtn.disabled = false;
+    if (!r.ok) {
+      say(r.error ?? "Couldn't fill them.");
+      return;
+    }
+    const not = [...r.failed.map((f) => `${f.label.slice(0, 40)} (${f.reason})`), ...r.missing.map((m) => `${m.slice(0, 40)} (not on the page now)`)];
+    say(`Filled ${r.filled.length} of ${answers.length}.${not.length ? ` Not filled: ${not.join('; ')}` : ' Check them on the page, then press Done — continue.'}`);
+    if (!not.length) drafts.delete(j.id);
+  });
+}
+
 /** The details row under a job: tabs and the open tab's panel. */
-export function detailsRow(j: QueueJob, tab: Tab, pick: (t: Tab) => void): HTMLTableRowElement {
+export function detailsRow(j: QueueJob, tab: Tab, pick: (t: Tab) => void, hooks?: ClaudeHooks): HTMLTableRowElement {
   const tr = document.createElement('tr');
   tr.className = 'details';
   const tabs: [Tab, string, number][] = [
@@ -161,5 +249,6 @@ export function detailsRow(j: QueueJob, tab: Tab, pick: (t: Tab) => void): HTMLT
   for (const b of Array.from(tr.querySelectorAll<HTMLButtonElement>('.dtabs button'))) {
     b.addEventListener('click', () => pick(b.dataset.tab as Tab));
   }
+  if (hooks) wireClaude(tr, j, hooks);
   return tr;
 }
