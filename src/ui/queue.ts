@@ -33,7 +33,7 @@ const ACTIONS: Record<JobStatus, [string, string, string?][]> = {
   running: [['open', 'Show']],
   'needs-you': [
     ['open', 'Open'],
-    ['continue', 'Done — continue', 'primary'],
+    ['continue', 'Done, continue', 'primary'],
     ['markApplied', 'Mark applied'],
     ['skip', 'Skip'],
   ],
@@ -142,38 +142,45 @@ async function render(): Promise<void> {
   $('state').dataset.on = st.running ? '1' : '';
   const current = q.find((j) => j.id === st.currentJobId);
   $('stateText').textContent = st.running
-    ? `Running${current ? ` — ${current.company ?? current.title ?? host(current.url)}: ${current.log.at(-1)?.slice(6) ?? ''}` : ' — waiting before the next job'}`
-    : `Stopped${st.pausedReason ? ` — ${st.pausedReason}` : ''}`;
+    ? current
+      ? `Working on ${current.company ?? current.title ?? host(current.url)}: ${current.log.at(-1)?.slice(6) ?? 'starting'}`
+      : 'Running, waiting a moment before the next job'
+    : `Stopped${st.pausedReason ? `: ${st.pausedReason}` : '. Press Start to work through the queue.'}`;
   $<HTMLButtonElement>('start').disabled = st.running;
   $<HTMLButtonElement>('pause').disabled = !st.running;
 
+  // Today, against the daily cap: started fills light, applied fills solid.
+  const cap = Math.max(1, ap.dailyCap);
+  const pct = (n: number) => `${Math.min(100, (n / cap) * 100)}%`;
+  $('todayBig').innerHTML = `${appliedToday} <small>applied today</small>`;
+  $('meterStarted').style.width = pct(started);
+  $('meterApplied').style.width = pct(appliedToday);
+  $('meter').setAttribute('aria-label', `${appliedToday} applied and ${started} started of ${ap.dailyCap} today`);
+  const aiCost = q.reduce((s, j) => s + (j.ai?.cost ?? 0), 0);
+  const aiCalls = q.reduce((s, j) => s + (j.ai?.calls ?? 0), 0);
+  $('todayText').textContent = `${started} of ${ap.dailyCap} started today.${aiCalls ? ` AI so far: ${aiCalls} questions, $${aiCost.toFixed(4)}.` : ''}`;
+
   const count = (s: JobStatus) => q.filter((j) => j.status === s).length;
-  const tabs: [typeof filter, string][] = [
-    ['all', `All ${q.length}`],
-    ['needs-you', `Needs you ${count('needs-you')}`],
-    ['ready', `Ready ${count('ready')}`],
-    ['queued', `Queued ${count('queued') + count('running')}`],
-    ['applied', `Applied ${count('applied')}`],
-    ['done', `Skipped / failed ${count('skipped') + count('failed')}`],
+  const tabs: [typeof filter, string, number][] = [
+    ['all', 'All', q.length],
+    ['needs-you', 'Needs you', count('needs-you')],
+    ['ready', 'Ready', count('ready')],
+    ['queued', 'Queued', count('queued') + count('running')],
+    ['applied', 'Applied', count('applied')],
+    ['done', 'Skipped or failed', count('skipped') + count('failed')],
   ];
   $('counts').innerHTML = '';
-  for (const [f, text] of tabs) {
+  for (const [f, text, n] of tabs) {
     const b = document.createElement('button');
-    b.textContent = text;
-    b.className = f === filter ? 'on' : '';
+    b.innerHTML = `${text} <span class="n">${n}</span>`;
+    b.className = [f === filter ? 'on' : '', f === 'needs-you' && n ? 'warn' : ''].filter(Boolean).join(' ');
+    b.setAttribute('aria-pressed', String(f === filter));
     b.addEventListener('click', () => {
       filter = f;
       render();
     });
     $('counts').appendChild(b);
   }
-  const todayLine = document.createElement('span');
-  todayLine.className = 'muted';
-  todayLine.style.alignSelf = 'center';
-  const aiCost = q.reduce((s, j) => s + (j.ai?.cost ?? 0), 0);
-  const aiCalls = q.reduce((s, j) => s + (j.ai?.calls ?? 0), 0);
-  todayLine.textContent = `Today: ${started}/${ap.dailyCap} started, ${appliedToday} applied${aiCalls ? ` · AI in this list: ${aiCalls} calls, $${aiCost.toFixed(4)}` : ''}`;
-  $('counts').appendChild(todayLine);
 
   const shown = q.filter(inFilter);
   const withLogs = shown.filter(hasLogs).length;
@@ -196,14 +203,15 @@ async function render(): Promise<void> {
 
 function row(j: QueueJob): HTMLTableRowElement[] {
   const tr = document.createElement('tr');
-  const name = j.title || j.company ? `${esc(j.title ?? '')}${j.title && j.company ? ' · ' : ''}${esc(j.company ?? '')}` : esc(host(j.url));
+  const name = esc(j.title || j.company || host(j.url));
+  const sub = j.title && j.company ? `<span>${esc(j.company)}</span>, ` : '';
   tr.innerHTML = `
     <td><span class="pill ${j.status}">${LABEL[j.status]}</span>${j.priority && j.status === 'queued' ? ' <span class="muted">next</span>' : ''}${
-      j.status === 'ready' && j.submitAt ? `<div class="muted" style="font-size:11px">auto-submits ${new Date(j.submitAt).toTimeString().slice(0, 5)}</div>` : ''
+      j.status === 'ready' && j.submitAt ? `<div class="muted" style="font-size:12px;margin-top:4px">Auto-submits at ${new Date(j.submitAt).toTimeString().slice(0, 5)}</div>` : ''
     }</td>
-    <td class="job"><div class="t">${name}</div><a href="${esc(j.url)}" target="_blank" rel="noreferrer">${esc(host(j.url))}</a>${j.profile ? ` <span class="muted">· ${esc(j.profile)}</span>` : ''}${
+    <td class="job"><div class="t">${name}</div><div style="font-size:12.5px">${sub}<a href="${esc(j.url)}" target="_blank" rel="noreferrer">${esc(host(j.url))}</a>${j.profile ? ` <span class="muted">(${esc(j.profile)} profile)</span>` : ''}</div>${
       j.ai?.calls
-        ? `<div class="muted" style="font-size:11px">AI: ${j.ai.calls} call${j.ai.calls > 1 ? 's' : ''} · ${(j.ai.tokensIn + j.ai.tokensOut).toLocaleString()} tokens${j.ai.cost ? ` · $${j.ai.cost.toFixed(4)}` : ''}</div>`
+        ? `<div class="muted" style="font-size:12px">AI answered ${j.ai.calls} question${j.ai.calls > 1 ? 's' : ''}, ${(j.ai.tokensIn + j.ai.tokensOut).toLocaleString()} tokens${j.ai.cost ? `, $${j.ai.cost.toFixed(4)}` : ''}</div>`
         : ''
     }</td>
     <td class="why"><div>${esc(j.reason ?? j.log.at(-1)?.slice(6) ?? '')}</div><div class="chips">${summaryChips(j)}</div></td>
@@ -223,6 +231,7 @@ function row(j: QueueJob): HTMLTableRowElement[] {
   const acts = tr.querySelector('.acts')!;
   // Everything about this job in one file, for a bug report.
   const dl = document.createElement('button');
+  dl.className = 'quiet';
   dl.textContent = 'Download log';
   dl.title = 'Step log, fill log and AI log for this job, as one JSON file';
   dl.addEventListener('click', () => download(JSON.stringify(jobLog(j), null, 2), 'application/json', `autopilot-log-${host(j.url)}-${today()}.json`));

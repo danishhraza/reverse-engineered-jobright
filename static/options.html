@@ -3,84 +3,108 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>Autofill Jobs — Profiles</title>
+    <title>Profiles and settings</title>
     <link rel="stylesheet" href="ui.css" />
     <style>
-      body { max-width: 980px; margin: 0 auto; padding: 24px 16px 60px; }
-      .profile { display: grid; grid-template-columns: 1fr auto; gap: 8px 14px; align-items: center; padding: 12px; border: 1px solid var(--border); border-radius: 10px; margin-bottom: 8px; }
-      .profile .name { font-weight: 600; font-size: 14px; }
+      body { max-width: 860px; margin: 0 auto; padding: 28px 20px 72px; }
+      .top { display: flex; justify-content: space-between; align-items: center; gap: 12px; flex-wrap: wrap; }
+      .top + p { margin: 6px 0 0; }
+      section { margin-top: 32px; }
+      section > h2 { margin-top: 0; }
+      .profile { display: grid; grid-template-columns: 1fr auto; gap: 8px 14px; align-items: center; padding: 12px 14px; background: var(--sheet); border: 1px solid var(--border); border-radius: var(--radius); margin-bottom: 8px; }
+      .profile .name { font-weight: 600; font-size: 14px; display: flex; gap: 8px; align-items: center; }
+      .profile .muted { font-size: 12.5px; }
       .actions { display: flex; gap: 6px; flex-wrap: wrap; justify-content: flex-end; }
+      .actions button { font-size: 12.5px; padding: 5px 10px; }
       #editor { min-height: 460px; }
       #msg { min-height: 20px; margin-top: 6px; }
       #msg.err { color: var(--bad); }
       #msg.ok { color: var(--accent); }
-      table { width: 100%; border-collapse: collapse; }
-      td, th { text-align: left; padding: 6px 8px; border-bottom: 1px solid var(--border); vertical-align: top; overflow-wrap: anywhere; }
-      th { color: var(--muted); font-weight: 500; }
-      #facts { display: grid; gap: 8px; }
+      table { width: 100%; border-collapse: collapse; background: var(--sheet); border: 1px solid var(--border); border-radius: var(--radius); overflow: hidden; }
+      td, th { text-align: left; padding: 8px 12px; border-bottom: 1px solid var(--border); vertical-align: top; overflow-wrap: anywhere; }
+      tr:last-child td { border-bottom: 0; }
+      th { color: var(--muted); font-weight: 500; font-size: 12.5px; background: var(--sunk); }
+      .card { display: grid; gap: 10px; }
+      .card > .row { margin-top: 4px; flex-wrap: wrap; }
       #facts label { display: flex; gap: 8px; align-items: center; }
       #facts select { width: auto; min-width: 200px; }
-      #account label:not(.toggle), #llm label:not(.toggle) { display: grid; gap: 4px; margin-bottom: 10px; }
+      #account label:not(.toggle), #llm label:not(.toggle) { display: grid; gap: 4px; font-size: 13px; color: var(--muted); }
       #account input:not([type=checkbox]), #llm input:not([type=checkbox]) { max-width: 420px; }
-      @media (max-width: 600px) { .profile { grid-template-columns: 1fr; } .actions { justify-content: flex-start; } }
+      #llm textarea { color: var(--text); }
+      @media (max-width: 600px) { body { padding: 18px 16px 56px; } .profile { grid-template-columns: 1fr; } .actions { justify-content: flex-start; } }
     </style>
   </head>
   <body>
-    <h1><img src="icons/icon32.png" alt="" width="20" height="20" style="vertical-align:-4px;image-rendering:pixelated;margin-right:6px">Autofill Jobs — profiles</h1>
-    <p class="muted">Everything is stored locally in this browser (chrome.storage). Nothing is sent anywhere.</p>
-
-    <div class="row" style="flex-wrap: wrap">
-      <label class="row"><button id="importBtn">Import profile JSON…</button><input type="file" id="importFile" accept=".json,application/json" hidden /></label>
-      <button id="exportBtn">Export JSON</button>
+    <div class="top">
+      <h1><img src="icons/icon32.png" alt="" width="22" height="22">Profiles and settings</h1>
+      <div class="row" style="flex-wrap: wrap">
+        <label class="row"><button id="importBtn">Import profile JSON…</button><input type="file" id="importFile" accept=".json,application/json" hidden /></label>
+        <button id="exportBtn">Export JSON</button>
+      </div>
     </div>
+    <p class="muted">Everything is stored in this browser only. Nothing leaves it except the questions you let the AI answer.</p>
 
-    <h2>Profiles</h2>
-    <div id="profiles"></div>
+    <section>
+      <h2>Profiles</h2>
+      <div id="profiles"></div>
+    </section>
 
-    <h2>About you (for the AI)</h2>
-    <p class="muted">Facts the AI should take as true when it answers questions: one per line, like <i>I have 1-2 years of professional experience</i> or <i>I don't have a security clearance</i>. Sent with every AI question, along with your salary range and the rest of your profile summary. "All profiles" applies to every resume; a profile's own lines add to them.</p>
-    <div class="card" id="facts">
-      <label>For <select id="factsFor"></select></label>
-      <textarea id="factsText" rows="7" placeholder="I have 1-2 years of professional experience&#10;I don't have a security clearance"></textarea>
-      <div class="row"><button id="factsSave" class="primary">Save facts</button><span id="factsMsg" class="muted"></span></div>
-    </div>
+    <section>
+      <h2>About you, for the AI</h2>
+      <p class="muted">Things the AI should take as true when it answers for you, one per line. They go with every AI question, along with your salary range and a summary of your profile. Lines under "All profiles" apply to every resume; a profile's own lines are added on top.</p>
+      <div class="card" id="facts">
+        <label>For <select id="factsFor"></select></label>
+        <textarea id="factsText" rows="7" placeholder="I have 1-2 years of professional experience&#10;I don't have a security clearance"></textarea>
+        <div class="row"><button id="factsSave" class="primary">Save facts</button><span id="factsMsg" class="muted"></span></div>
+      </div>
+    </section>
 
-    <h2>Settings</h2>
-    <div class="card">
-      <label class="toggle"><input type="checkbox" id="autoAdvance" /> Go to next page automatically on multi-page forms (stops before Submit)</label>
-      <label class="toggle"><input type="checkbox" id="overwrite" /> Overwrite values the site pre-filled (e.g. from its own resume parser)</label>
-      <label class="toggle"><input type="checkbox" id="learn" /> Learn answers I type into flagged fields (asks before saving)</label>
-      <label class="toggle"><input type="checkbox" id="showFab" /> Show the floating Autofill button on application pages</label>
-    </div>
+    <section>
+      <h2>Filling</h2>
+      <div class="card">
+        <label class="toggle"><input type="checkbox" id="autoAdvance" /> Go to the next page by itself on multi-page forms (it still stops before Submit)</label>
+        <label class="toggle"><input type="checkbox" id="overwrite" /> Replace answers the site filled in itself, for example from its own resume parser</label>
+        <label class="toggle"><input type="checkbox" id="learn" /> Learn answers I type into flagged fields (asks before saving)</label>
+        <label class="toggle"><input type="checkbox" id="showFab" /> Show the floating Autofill button on application pages</label>
+      </div>
+    </section>
 
-    <h2>Job site login</h2>
-    <p class="muted">Used on sign-up and sign-in pages (Workday, Taleo, iCIMS…) when you press Fill. Saved only in this browser's local storage, not encrypted and never synced, so use a password just for job sites.</p>
-    <div class="card" id="account">
-      <label>Email <input type="email" id="accEmail" autocomplete="off" placeholder="you@example.com" /></label>
-      <label>User name <span class="muted">(only if a site asks for one; blank = use the email)</span> <input id="accUser" autocomplete="off" /></label>
-      <label>Password <input type="password" id="accPass" autocomplete="new-password" /></label>
-      <label class="toggle"><input type="checkbox" id="accShow" /> Show password</label>
-      <div class="row"><button id="accSave" class="primary">Save login</button><button id="accClear" class="danger">Clear</button><span id="accMsg" class="muted"></span></div>
-    </div>
+    <section>
+      <h2>Job site login</h2>
+      <p class="muted">Used on sign-up and sign-in pages (Workday, Taleo, iCIMS and others) when you press Fill. It's kept only in this browser, unencrypted and never synced, so use a password you only use for job sites.</p>
+      <div class="card" id="account">
+        <label>Email <input type="email" id="accEmail" autocomplete="off" placeholder="you@example.com" /></label>
+        <label>User name, only if a site asks for one (leave blank to use the email) <input id="accUser" autocomplete="off" /></label>
+        <label>Password <input type="password" id="accPass" autocomplete="new-password" /></label>
+        <label class="toggle"><input type="checkbox" id="accShow" /> Show password</label>
+        <div class="row"><button id="accSave" class="primary">Save login</button><button id="accClear" class="danger">Clear</button><span id="accMsg" class="muted"></span></div>
+      </div>
+    </section>
 
-    <h2>AI answers (OpenRouter)</h2>
-    <p class="muted">Questions the rules can't answer ("Do you have a relative working at…?") go to a model on <a href="https://openrouter.ai/keys" target="_blank" rel="noreferrer">OpenRouter</a> with a short summary of your profile (work, education, work authorization, location, skills; no contact details or EEO answers) and the standing answers below. Answers it isn't sure of stay flagged for you. Reused answers are cached.</p>
-    <div class="card" id="llm">
-      <label class="toggle"><input type="checkbox" id="llmOn" /> Use AI for questions the rules can't answer</label>
-      <label>OpenRouter API key <input type="password" id="llmKey" autocomplete="off" placeholder="sk-or-…" /></label>
-      <label>Model <input id="llmModel" autocomplete="off" /></label>
-      <label>Standing answers (one per line; always true for you) <textarea id="llmStanding" rows="6"></textarea></label>
-      <div class="row"><button id="llmSave" class="primary">Save</button><button id="llmTest">Test</button><button id="llmClearCache">Forget cached answers</button><span id="llmMsg" class="muted"></span></div>
-    </div>
+    <section>
+      <h2>AI answers</h2>
+      <p class="muted">Questions the rules can't answer ("Do you have a relative working at…?") go to a model on <a href="https://openrouter.ai/keys" target="_blank" rel="noreferrer">OpenRouter</a>, with a short summary of your profile: work, education, work authorization, location and skills. Contact details and EEO answers are never sent. Answers it's unsure of are marked for you to review, and repeat questions reuse earlier answers.</p>
+      <div class="card" id="llm">
+        <label class="toggle"><input type="checkbox" id="llmOn" /> Use AI for questions the rules can't answer</label>
+        <label>OpenRouter API key <input type="password" id="llmKey" autocomplete="off" placeholder="sk-or-…" /></label>
+        <label>Model <input id="llmModel" autocomplete="off" /></label>
+        <label>Standing answers, one per line (always true for you) <textarea id="llmStanding" rows="6"></textarea></label>
+        <div class="row"><button id="llmSave" class="primary">Save</button><button id="llmTest">Test</button><button id="llmClearCache">Forget saved answers</button><span id="llmMsg" class="muted"></span></div>
+      </div>
+    </section>
 
-    <h2>Learned answers</h2>
-    <p class="muted">Questions you answered by hand on flagged fields. These are reused when the exact same question shows up again.</p>
-    <div id="learned"></div>
+    <section>
+      <h2>Learned answers</h2>
+      <p class="muted">Answers you typed into flagged fields. They're reused when the exact same question comes up again.</p>
+      <div id="learned"></div>
+    </section>
 
-    <h2>Edit JSON</h2>
-    <p class="muted"><code>base</code> is shared by every profile; each profile's <code>overrides</code> replaces just what differs (arrays replace, objects merge).</p>
-    <textarea id="editor" spellcheck="false"></textarea>
-    <div class="row"><button id="saveBtn" class="primary">Save JSON</button><span id="msg"></span></div>
+    <section>
+      <h2>Edit JSON</h2>
+      <p class="muted"><code>base</code> is shared by every profile. Each profile's <code>overrides</code> replaces only what differs: lists are replaced, objects are merged.</p>
+      <textarea id="editor" spellcheck="false"></textarea>
+      <div class="row" style="margin-top:8px"><button id="saveBtn" class="primary">Save JSON</button><span id="msg"></span></div>
+    </section>
 
     <script src="options.js"></script>
   </body>

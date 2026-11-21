@@ -119,8 +119,8 @@ function fillPanel(j: QueueJob): string {
         .map(([c, t, cls]) => `<span class="pill ${cls}">${c} ${t}</span>`)
         .join(' ');
       return `<details class="page"${i === pages.length - 1 ? ' open' : ''}><summary><b>Page ${e.page}</b> <span class="muted">${clock(e.at)}</span> ${counts}${
-        e.message ? ` <span class="muted">· ${esc(e.message)}</span>` : ''
-      }${e.stop ? ` <span class="muted">· stopped: ${esc(e.stop)}</span>` : ''}</summary>
+        e.message ? ` <span class="muted">${esc(e.message)}</span>` : ''
+      }${e.stop ? ` <span class="muted">(stopped: ${esc(e.stop)})</span>` : ''}</summary>
       <div class="muted url">${esc(e.url.slice(0, 160))}</div>
       <table class="ailog"><thead><tr><th>Field</th><th>Result</th><th>Value</th><th>Why</th></tr></thead><tbody>${e.fields
         .map(
@@ -155,7 +155,7 @@ function aiPanel(j: QueueJob): string {
       </tr>`,
     )
     .join('');
-  return `<p class="muted">${plural(log.length, 'call')} · ${tokens.toLocaleString()} tokens · $${cost.toFixed(4)}</p>
+  return `<p class="muted">${plural(log.length, 'call')}, ${tokens.toLocaleString()} tokens, $${cost.toFixed(4)}</p>
     <table class="ailog"><thead><tr><th>Time</th><th>Asked</th><th>AI answered</th><th>What was done</th><th>Cost</th></tr></thead><tbody>${rows}</tbody></table>`;
 }
 
@@ -163,14 +163,14 @@ function aiPanel(j: QueueJob): string {
 export function summaryChips(j: QueueJob): string {
   const need = needsYou(j).length;
   const review = toReview(j).length;
+  const facts = [j.fillLog?.length ? `${plural(j.fillLog.length, 'page')} filled` : '', j.aiLog?.length ? `${plural(j.aiLog.length, 'AI answer')}` : ''].filter(Boolean).join(', ');
   return [
     need ? `<span class="pill needs-you">${need} unanswered</span>` : '',
     review ? `<span class="pill review">${review} to review</span>` : '',
-    j.fillLog?.length ? `<span class="muted">${plural(j.fillLog.length, 'page')} filled</span>` : '',
-    j.aiLog?.length ? `<span class="muted">${plural(j.aiLog.length, 'AI call')}</span>` : '',
+    facts ? `<span class="muted">${facts}</span>` : '',
   ]
     .filter(Boolean)
-    .join('<span class="muted">·</span>');
+    .join(' ');
 }
 
 /** Which tab to open first: what needs you, when something does. */
@@ -244,7 +244,7 @@ function wireClaude(tr: HTMLElement, j: QueueJob, hooks: ClaudeHooks): void {
       return;
     }
     const not = [...r.failed.map((f) => `${f.label.slice(0, 40)} (${f.reason})`), ...r.missing.map((m) => `${m.slice(0, 40)} (not on the page now)`)];
-    say(`Filled ${r.filled.length} of ${answers.length}.${not.length ? ` Not filled: ${not.join('; ')}` : ' Check them on the page, then press Done — continue.'}`);
+    say(`Filled ${r.filled.length} of ${answers.length}.${not.length ? ` Not filled: ${not.join('; ')}` : ' Check them on the page, then press Done, continue.'}`);
     if (!not.length) drafts.delete(j.id);
   });
 }

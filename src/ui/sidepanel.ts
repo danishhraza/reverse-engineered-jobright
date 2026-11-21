@@ -109,6 +109,7 @@ function esc(s: string): string {
 function rowEl(r: FieldReport & { frameId: number }): HTMLElement {
   const div = document.createElement('div');
   div.className = 'field';
+  div.dataset.s = review(r) ? 'review' : r.status;
   div.innerHTML = `
     <div class="grow">
       <div class="lbl">${esc(r.label)}${r.required ? ' <span class="muted">*</span>' : ''}</div>
@@ -154,7 +155,7 @@ $('fillFocused').addEventListener('click', () => startFill('focused'));
 async function renderPending(): Promise<void> {
   const list = await getPending();
   learnBox.hidden = !list.length;
-  learnBox.innerHTML = list.length ? `<h3>Learned from you — save for next time?</h3>` : '';
+  learnBox.innerHTML = list.length ? `<h3>Save what you typed for next time?</h3>` : '';
   for (const p of list) {
     const div = document.createElement('div');
     div.className = 'learn';

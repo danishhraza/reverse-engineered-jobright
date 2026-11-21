@@ -6,46 +6,55 @@
     <title>Autofill Jobs</title>
     <link rel="stylesheet" href="ui.css" />
     <style>
-      body { padding: 14px; }
-      header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; }
-      #fill { width: 100%; padding: 11px; font-size: 14px; margin: 10px 0 6px; }
-      .modes { display: flex; gap: 6px; margin-bottom: 8px; }
-      .modes button { flex: 1; font-size: 12px; }
-      .modes kbd { font: 11px ui-monospace, Consolas, monospace; color: var(--muted); }
-      #learnBox { margin: 10px 0; border-color: var(--focus); }
-      #learnBox h3 { margin: 0 0 6px; font-size: 13px; }
-      .learn { display: flex; gap: 8px; align-items: flex-start; padding: 6px 0; border-top: 1px solid var(--border); }
+      body { padding: 16px 16px 24px; }
+      header { display: flex; justify-content: space-between; align-items: center; gap: 8px; flex-wrap: wrap; margin-bottom: 14px; }
+      header h1 { font-size: 16px; }
+      header nav { display: flex; gap: 12px; font-size: 13px; }
+      .card label[for=profile] { display: block; font-size: 12.5px; margin-bottom: 4px; }
+      .settings { margin-top: 10px; }
+      #fill { width: 100%; padding: 11px; font-size: 15px; margin: 14px 0 8px; border-radius: 8px; }
+      .modes { display: flex; gap: 6px; margin-bottom: 10px; }
+      .modes button { flex: 1; font-size: 12.5px; padding: 7px 8px; }
+      .modes kbd { font: 11px ui-monospace, Consolas, monospace; color: var(--muted); display: block; margin-top: 1px; }
+      #learnBox { margin: 10px 0; border-left: 3px solid var(--focus); }
+      #learnBox h3 { margin: 0 0 6px; font-size: 13.5px; }
+      .learn { display: flex; gap: 8px; align-items: flex-start; padding: 8px 0; border-top: 1px solid var(--border); }
       .learn .q { font-weight: 600; overflow-wrap: anywhere; }
       .learn .a { overflow-wrap: anywhere; }
       .learn .prev { color: var(--muted); font-size: 12px; text-decoration: line-through; overflow-wrap: anywhere; }
       .learn button { padding: 4px 9px; font-size: 14px; line-height: 1; }
       .learn .yes { color: var(--accent); }
       .learn .no { color: var(--bad); }
-      .field .val { white-space: pre-line; }
-      #status { min-height: 18px; }
-      #now { display: flex; align-items: center; gap: 8px; margin: 4px 0 8px; padding: 8px 10px; border: 1px solid var(--focus); border-radius: 8px; }
+      #status { min-height: 18px; margin: 4px 0; }
+      #now { display: flex; align-items: center; gap: 10px; margin: 6px 0 10px; padding: 9px 12px; background: var(--focus-bg); border-radius: 8px; }
       #now[hidden] { display: none; }
-      #now .spin { width: 10px; height: 10px; flex: none; border-radius: 50%; border: 2px solid var(--focus); border-right-color: transparent; animation: spin .8s linear infinite; }
+      #now .spin { width: 12px; height: 12px; flex: none; border-radius: 50%; border: 2px solid var(--focus); border-right-color: transparent; animation: spin .8s linear infinite; }
       #now .txt { flex: 1; min-width: 0; overflow-wrap: anywhere; }
       #cancel { color: var(--bad); padding: 4px 10px; flex: none; }
       @keyframes spin { to { transform: rotate(360deg); } }
-      .field { display: flex; gap: 8px; align-items: flex-start; padding: 8px 10px; border: 1px solid var(--border); border-radius: 8px; margin-bottom: 6px; cursor: pointer; background: var(--bg); }
-      .field:hover { border-color: var(--focus); }
+      /* One row per field; the left edge carries its status colour. */
+      .field { display: flex; gap: 10px; align-items: flex-start; padding: 9px 10px 9px 12px; background: var(--sheet); border: 1px solid var(--border); border-left: 3px solid var(--border-strong); border-radius: 8px; margin-bottom: 6px; cursor: pointer; }
+      .field[data-s=filled] { border-left-color: var(--accent); }
+      .field[data-s=flagged] { border-left-color: var(--warn); }
+      .field[data-s=review] { border-left-color: var(--review-line); }
+      .field[data-s=failed] { border-left-color: var(--bad); }
+      .field:hover { border-color: var(--border-strong); background: var(--sunk); }
       .field .lbl { font-weight: 600; overflow-wrap: anywhere; }
-      .field .why { color: var(--muted); font-size: 12px; overflow-wrap: anywhere; }
-      .field .val { font-size: 12px; overflow-wrap: anywhere; max-height: 7.5em; overflow: hidden; }
-      details summary { cursor: pointer; color: var(--muted); margin: 10px 0 6px; }
-      .settings { margin-top: 8px; }
-      .empty { padding: 20px 0; text-align: center; }
+      .field .why { color: var(--muted); font-size: 12.5px; overflow-wrap: anywhere; }
+      .field .val { font-size: 12.5px; overflow-wrap: anywhere; max-height: 7.5em; overflow: hidden; white-space: pre-line; }
+      #report details { margin-top: 4px; }
+      #report details summary { cursor: pointer; font-weight: 600; margin: 12px 0 8px; }
+      .empty { padding: 24px 0; text-align: center; }
+      .foot { margin-top: 18px; font-size: 12.5px; }
     </style>
   </head>
   <body>
     <header>
-      <h1><img src="icons/icon32.png" alt="" width="20" height="20" style="vertical-align:-4px;image-rendering:pixelated;margin-right:6px">Autofill Jobs</h1>
-      <span><a href="queue.html" target="_blank" id="openQueue">Autopilot</a> · <a href="#" id="openOptions">Profiles &amp; settings</a></span>
+      <h1><img src="icons/icon32.png" alt="" width="20" height="20">Autofill Jobs</h1>
+      <nav><a href="queue.html" target="_blank" id="openQueue">Autopilot</a><a href="#" id="openOptions">Profiles and settings</a></nav>
     </header>
     <div class="card">
-      <label class="muted" for="profile">Profile</label>
+      <label class="muted" for="profile">Resume profile</label>
       <select id="profile"></select>
       <div class="settings">
         <label class="toggle"><input type="checkbox" id="autoAdvance" /> Go to next page automatically (Workday)</label>
@@ -55,13 +64,13 @@
     <button id="fill" class="primary">Fill this page</button>
     <div class="modes">
       <button id="fillEmpty" title="Leave anything already filled (by you or the site's resume parser) alone">Only empty fields</button>
-      <button id="fillFocused" title="Click into a field on the page first. Shortcut: Alt+Shift+D">Just the field I clicked <kbd>Alt+Shift+D</kbd></button>
+      <button id="fillFocused" title="Click into a field on the page first">Just the field I clicked <kbd>Alt+Shift+D</kbd></button>
     </div>
     <div id="learnBox" class="card" hidden></div>
     <div id="now" hidden><span class="spin"></span><span class="txt"></span><button id="cancel" title="Stop autofill (anything already filled stays)">Cancel</button></div>
     <div id="status" class="muted"></div>
     <div id="report"></div>
-    <p class="muted" style="margin-top:14px;font-size:12px">Something not filled right? <a href="#" id="snapshot">Save page snapshot</a> (to Downloads) and share it.</p>
+    <p class="muted foot">Something not filled right? <a href="#" id="snapshot">Save page snapshot</a> (to Downloads) and share it.</p>
     <script src="sidepanel.js"></script>
   </body>
 </html>

@@ -3,102 +3,140 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>Autofill Jobs — Autopilot</title>
+    <title>Autopilot</title>
     <link rel="stylesheet" href="ui.css" />
     <style>
-      body { max-width: 1180px; margin: 0 auto; padding: 20px 16px 60px; }
+      body { max-width: 1180px; margin: 0 auto; padding: 24px 20px 64px; }
       header { display: flex; justify-content: space-between; align-items: center; gap: 12px; flex-wrap: wrap; }
-      #state { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin: 14px 0 6px; }
-      #state .dot { width: 10px; height: 10px; border-radius: 50%; background: var(--muted); }
-      #state[data-on="1"] .dot { background: var(--accent); animation: p 1.2s infinite; }
-      @keyframes p { 50% { opacity: .35; } }
-      #counts { display: flex; gap: 6px; flex-wrap: wrap; margin: 10px 0; }
-      #counts button { padding: 4px 10px; font-size: 12px; }
-      #bulk { gap: 6px; flex-wrap: wrap; margin: 0 0 10px; font-size: 12px; }
-      #bulk button { padding: 4px 10px; font-size: 12px; }
-      #counts button.on { border-color: var(--focus); color: var(--focus); }
+      header .row { gap: 10px; }
+      header a { font-size: 13px; margin-left: 6px; }
+
+      /* Today: the one thing on this page that should catch your eye. */
+      #state { margin: 18px 0 6px; padding: 16px 18px; background: var(--sheet); border: 1px solid var(--border); border-radius: var(--radius); display: grid; gap: 14px; }
+      .state-line { display: flex; align-items: center; gap: 10px; min-width: 0; }
+      #state .dot { width: 10px; height: 10px; flex: none; border-radius: 50%; background: var(--border-strong); }
+      #state[data-on="1"] .dot { background: var(--accent); box-shadow: 0 0 0 4px var(--accent-soft); animation: p 1.6s ease-in-out infinite; }
+      @keyframes p { 50% { box-shadow: 0 0 0 7px transparent; } }
+      #stateText { font-weight: 500; overflow-wrap: anywhere; }
+      .today { display: grid; grid-template-columns: auto 1fr; gap: 6px 18px; align-items: center; }
+      .today .big { font-size: 30px; font-weight: 600; letter-spacing: -0.02em; line-height: 1; grid-row: span 2; }
+      .today .big small { font-size: 15px; font-weight: 500; color: var(--muted); letter-spacing: 0; }
+      .meter { position: relative; height: 10px; border-radius: 5px; background: var(--sunk); border: 1px solid var(--border); overflow: hidden; }
+      .meter span { position: absolute; top: 0; bottom: 0; left: 0; width: 0; border-radius: 5px; transition: width .4s ease; }
+      #meterStarted { background: var(--accent-soft); }
+      #meterApplied { background: var(--accent); }
+      #todayText { font-size: 12.5px; color: var(--muted); }
+      .hint { font-size: 12.5px; margin: 8px 0 0; }
+
+      /* Filters */
+      .toolbar { display: flex; justify-content: space-between; align-items: center; gap: 10px; flex-wrap: wrap; margin: 22px 0 10px; }
+      #counts { display: flex; gap: 2px; flex-wrap: wrap; padding: 3px; background: var(--sheet); border: 1px solid var(--border); border-radius: 8px; }
+      #counts button { border: 0; background: none; padding: 5px 10px; font-size: 13px; color: var(--muted); border-radius: var(--radius-sm); display: inline-flex; gap: 6px; align-items: center; }
+      #counts button:hover { background: var(--sunk); color: var(--text); }
+      #counts button.on { background: var(--page); color: var(--text); font-weight: 600; }
+      #counts .n { font-size: 11.5px; min-width: 20px; padding: 0 6px; border-radius: 9px; background: var(--sunk); border: 1px solid var(--border); text-align: center; font-weight: 600; }
+      #counts button.warn .n { background: var(--warn-bg); color: var(--warn); border-color: transparent; }
+      #bulk { gap: 6px; flex-wrap: wrap; font-size: 12.5px; }
+      #bulk button { padding: 5px 10px; font-size: 12.5px; }
+
+      /* Job list */
+      #list { background: var(--sheet); border: 1px solid var(--border); border-radius: var(--radius); overflow: hidden; }
       table { width: 100%; border-collapse: collapse; }
-      th, td { text-align: left; padding: 8px; border-bottom: 1px solid var(--border); vertical-align: top; }
-      th { color: var(--muted); font-weight: 500; font-size: 12px; }
+      th, td { text-align: left; padding: 11px 12px; border-bottom: 1px solid var(--border); vertical-align: top; }
+      #list > table > tbody > tr:last-child > td { border-bottom: 0; }
+      th { color: var(--muted); font-weight: 500; font-size: 12.5px; background: var(--sunk); padding-top: 8px; padding-bottom: 8px; }
+      #list > table > tbody > tr > td:first-child { width: 110px; }
       td.job { min-width: 220px; overflow-wrap: anywhere; }
       td.job .t { font-weight: 600; }
+      td.job a { font-size: 12.5px; }
       td.why { overflow-wrap: anywhere; }
       td.acts { white-space: nowrap; text-align: right; }
-      td.acts button { padding: 4px 8px; font-size: 12px; margin-left: 4px; }
+      td.acts button { padding: 4px 9px; font-size: 12.5px; margin-left: 4px; }
       .log { margin-top: 4px; font: 11px/1.4 ui-monospace, Consolas, monospace; color: var(--muted); white-space: pre-wrap; }
-      .pill.queued { background: var(--border); color: var(--text); }
-      .pill.running { background: rgba(99,102,241,.15); color: var(--focus); }
-      .pill.needs-you { background: var(--warn-bg); color: var(--warn); }
-      .pill.ready { background: rgba(99,102,241,.15); color: var(--focus); }
-      .pill.applied { background: rgba(16,185,129,.15); color: var(--accent); }
-      .pill.skipped { background: var(--border); color: var(--muted); }
-      .pill.failed { background: rgba(239,68,68,.15); color: var(--bad); }
-      #add textarea { min-height: 90px; }
-      table.ailog { margin-top: 8px; font-size: 12px; background: var(--panel); border-radius: 8px; }
-      table.ailog td, table.ailog th { padding: 5px 6px; }
-      table.ailog details { font-size: 11px; color: var(--muted); }
-      td.why .chips { margin-top: 4px; display: flex; gap: 6px; align-items: center; flex-wrap: wrap; font-size: 12px; }
-      td.why button.more { padding: 2px 8px; font-size: 12px; }
-      tr.details > td { background: var(--bg); padding: 2px 8px 14px; }
-      .dtabs { display: flex; gap: 2px; border-bottom: 1px solid var(--border); margin-bottom: 10px; flex-wrap: wrap; }
-      .dtabs button { border: 0; border-bottom: 2px solid transparent; border-radius: 0; background: none; padding: 6px 10px; font-size: 12px; color: var(--muted); }
-      .dtabs button.on { color: var(--text); border-bottom-color: var(--focus); font-weight: 600; }
+      #add textarea { min-height: 96px; }
+      table.ailog { margin-top: 8px; font-size: 12.5px; background: var(--sheet); border-radius: 8px; border: 1px solid var(--border); border-collapse: separate; border-spacing: 0; overflow: hidden; }
+      table.ailog td, table.ailog th { padding: 6px 8px; }
+      table.ailog th { background: transparent; }
+      table.ailog tr:last-child td { border-bottom: 0; }
+      table.ailog details { font-size: 11.5px; color: var(--muted); }
+      td.why .chips { margin-top: 6px; display: flex; gap: 6px; align-items: center; flex-wrap: wrap; font-size: 12.5px; }
+      td.why button.more { padding: 2px 9px; font-size: 12.5px; }
+
+      /* Expanded job */
+      tr.details > td { background: var(--sunk); padding: 4px 14px 16px; }
+      .dtabs { display: flex; gap: 4px; border-bottom: 1px solid var(--border); margin-bottom: 12px; flex-wrap: wrap; }
+      .dtabs button { border: 0; border-bottom: 2px solid transparent; border-radius: 0; background: none; padding: 8px 10px; font-size: 13px; color: var(--muted); }
+      .dtabs button:hover:not(:disabled) { background: none; color: var(--text); }
+      .dtabs button.on { color: var(--text); border-bottom-color: var(--accent); font-weight: 600; }
       .dtabs .n { display: inline-block; min-width: 18px; padding: 0 5px; border-radius: 9px; background: var(--border); color: var(--text); font-size: 11px; text-align: center; }
       .dtabs .n.warn { background: var(--warn-bg); color: var(--warn); }
-      .dbody { max-height: 520px; overflow: auto; }
-      .dbody .reason { margin: 0 0 8px; }
-      ol.steps { list-style: none; margin: 0; padding: 0; font-size: 12px; }
-      ol.steps li { display: grid; grid-template-columns: 44px 1fr; gap: 8px; padding: 3px 6px; border-left: 3px solid transparent; overflow-wrap: anywhere; }
-      ol.steps li:nth-child(odd) { background: var(--panel); }
-      ol.steps li time { color: var(--muted); font-variant-numeric: tabular-nums; }
+      .dbody { max-height: 540px; overflow: auto; }
+      .dbody .reason { margin: 0 0 10px; }
+      ol.steps { list-style: none; margin: 0; padding: 0; font-size: 12.5px; }
+      ol.steps li { display: grid; grid-template-columns: 46px 1fr; gap: 8px; padding: 4px 8px; border-left: 3px solid transparent; overflow-wrap: anywhere; }
+      ol.steps li:nth-child(odd) { background: var(--sheet); }
+      ol.steps li time { color: var(--muted); }
       ol.steps li.bad { border-left-color: var(--bad); }
       ol.steps li.warn { border-left-color: var(--warn); }
       ol.steps li.ai { border-left-color: var(--focus); }
-      details.page { margin-bottom: 8px; border: 1px solid var(--border); border-radius: 8px; padding: 6px 8px; background: var(--panel); }
-      details.page > summary { cursor: pointer; font-size: 12px; }
-      details.page .url { font-size: 11px; margin-top: 4px; overflow-wrap: anywhere; }
-      details.page table.ailog { background: var(--bg); }
-      .review-head { margin: 14px 0 4px; font-size: 13px; color: #db2777; }
-      table.ailog.review { border-left: 3px solid #ec4899; }
-      .claude { border: 1px solid var(--border); border-radius: 10px; padding: 10px 12px; margin: 0 0 12px; background: var(--panel); display: grid; gap: 8px; }
-      .claude-head { font-size: 13px; display: flex; gap: 8px; align-items: baseline; flex-wrap: wrap; }
-      .claude-row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; font-size: 12px; }
-      .claude-row button { padding: 5px 10px; font-size: 12px; }
-      .claude-reply { min-height: 90px; }
-      .claude-preview ol { margin: 0; padding-left: 20px; font-size: 12px; display: grid; gap: 6px; max-height: 220px; overflow: auto; }
+      details.page { margin-bottom: 8px; border: 1px solid var(--border); border-radius: 8px; padding: 8px 10px; background: var(--sheet); }
+      details.page > summary { cursor: pointer; font-size: 13px; }
+      details.page .url { font-size: 11.5px; margin-top: 4px; overflow-wrap: anywhere; }
+      details.page table.ailog { background: var(--sunk); }
+      .review-head { margin: 16px 0 4px; font-size: 13.5px; font-weight: 600; color: var(--review); }
+      table.ailog.review { border-left: 3px solid var(--review-line); }
+      .claude { border: 1px solid var(--border); border-left: 3px solid var(--focus); border-radius: 8px; padding: 12px 14px; margin: 0 0 14px; background: var(--sheet); display: grid; gap: 10px; }
+      .claude-head { font-size: 13.5px; display: flex; gap: 8px; align-items: baseline; flex-wrap: wrap; }
+      .claude-row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; font-size: 12.5px; }
+      .claude-row button { padding: 5px 11px; font-size: 12.5px; }
+      .claude-reply { min-height: 96px; }
+      .claude-preview ol { margin: 0; padding-left: 20px; font-size: 12.5px; display: grid; gap: 6px; max-height: 240px; overflow: auto; }
       .claude-msg { overflow-wrap: anywhere; }
-      #settings label { display: grid; grid-template-columns: 260px 120px; gap: 8px; align-items: center; margin-bottom: 6px; }
-      #settings input[type=number] { font: inherit; padding: 5px 8px; border: 1px solid var(--border); border-radius: 6px; background: var(--bg); color: var(--text); }
+
+      #settings label { display: grid; grid-template-columns: minmax(0, 300px) 120px; gap: 12px; align-items: center; margin-bottom: 8px; }
+      #settings input[type=number] { padding: 5px 8px; }
+      #settings label.toggle { display: flex; margin: 12px 0 8px; }
       #msg { min-height: 18px; }
-      .empty { padding: 30px 0; text-align: center; }
+      .empty { padding: 40px 16px; text-align: center; }
       @media (max-width: 720px) {
+        body { padding: 16px 16px 48px; }
         thead { display: none; }
-        tr { display: block; border-bottom: 1px solid var(--border); padding: 6px 0; }
-        td { display: block; border: 0; padding: 3px 0; }
-        td.acts { text-align: left; }
+        #list tr { display: block; border-bottom: 1px solid var(--border); padding: 10px 12px; }
+        #list td { display: block; border: 0; padding: 3px 0; width: auto !important; }
+        td.acts { text-align: left; white-space: normal; }
         td.acts button { margin: 4px 4px 0 0; }
-        #settings label { grid-template-columns: 1fr 100px; }
+        #settings label { grid-template-columns: 1fr 96px; }
+        .today .big { font-size: 24px; }
       }
     </style>
   </head>
   <body>
     <header>
-      <h1><img src="icons/icon32.png" alt="" width="20" height="20" style="vertical-align:-4px;image-rendering:pixelated;margin-right:6px">Autofill Jobs — Autopilot</h1>
+      <h1><img src="icons/icon32.png" alt="" width="22" height="22">Autopilot</h1>
       <div class="row">
         <button id="start" class="primary">Start</button>
         <button id="pause">Pause</button>
-        <a href="options.html" target="_blank">Profiles &amp; settings</a>
+        <a href="options.html" target="_blank">Profiles and settings</a>
       </div>
     </header>
 
-    <div id="state"><span class="dot"></span><span id="stateText" class="grow"></span></div>
-    <p class="muted" style="margin:0">Jobs open one at a time in a separate window — keep that window open and not minimized (Chrome slows down hidden pages). Anything it can't finish lands in <b>Needs you</b> with its tab kept open: sort it out there, then press <b>Done — continue</b>.</p>
+    <section id="state" aria-live="polite">
+      <div class="state-line"><span class="dot"></span><span id="stateText" class="grow"></span></div>
+      <div class="today">
+        <div class="big" id="todayBig"></div>
+        <div class="meter" role="img" id="meter"><span id="meterStarted"></span><span id="meterApplied"></span></div>
+        <div id="todayText"></div>
+      </div>
+    </section>
+    <p class="muted hint">Jobs open one at a time in a separate window. Keep it open and not minimized, because Chrome slows down hidden pages. Anything it can't finish goes to <b>Needs you</b> with its tab left open: sort it out there, then press <b>Done, continue</b>.</p>
 
-    <div id="counts"></div>
-    <div id="bulk" class="row">
-      <button id="saveLogsBtn" title="Step, fill and AI logs of every job in this list, as one file">Save all logs</button>
-      <button id="saveSnapsBtn" title="The same, plus a snapshot of each page still open (Needs you / Ready / Failed tabs)">Save logs + page snapshots</button>
-      <span id="bulkMsg" class="muted"></span>
+    <div class="toolbar">
+      <div id="counts" aria-label="Show jobs"></div>
+      <div id="bulk" class="row">
+        <button id="saveLogsBtn" title="Step, fill and AI logs of every job in this list, as one file">Save all logs</button>
+        <button id="saveSnapsBtn" title="The same, plus a snapshot of each page still open (Needs you / Ready / Failed tabs)">Save logs + page snapshots</button>
+        <span id="bulkMsg" class="muted"></span>
+      </div>
     </div>
     <div id="list"></div>
 

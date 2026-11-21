@@ -44,7 +44,7 @@ async function render(): Promise<void> {
       div.innerHTML = `
         <div>
           <div class="name">${esc(p.name)} ${settings.activeProfileId === p.id ? '<span class="pill filled">active</span>' : ''}</div>
-          <div class="muted">${resume ? `Resume: ${esc(resume.name)} (${Math.round((resume.dataUrl.length * 0.75) / 1024)} KB)` : `<span style="color:var(--warn)">No resume file</span>${p.resumeFileName ? ` — expected ${esc(p.resumeFileName)}` : ''}`}</div>
+          <div class="muted">${resume ? `Resume: ${esc(resume.name)} (${Math.round((resume.dataUrl.length * 0.75) / 1024)} KB)` : `<span style="color:var(--warn)">No resume attached</span>${p.resumeFileName ? ` (expects ${esc(p.resumeFileName)})` : ''}`}</div>
         </div>
         <div class="actions">
           <label><button data-act="upload">${resume ? 'Replace PDF' : 'Attach PDF'}</button><input type="file" accept=".pdf,.doc,.docx" hidden /></label>
