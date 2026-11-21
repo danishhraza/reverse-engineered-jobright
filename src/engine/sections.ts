@@ -80,16 +80,25 @@ function titles(): { el: HTMLElement; kind: Kind }[] {
  * Pair each "Add" control with the title right before it. An add control whose
  * nearest marker is another add control belongs to a section we don't handle
  * (Languages, Certifications).
+ *
+ * Some sites repeat the title in every block (Greenhouse: an "Education" header
+ * on each school). Then the section starts at the first of those, or adding
+ * block 2 would make its header the start and hide block 1.
  */
 function findSections(): Section[] {
   const markers = [
-    ...titles().map((t) => ({ el: t.el, kind: t.kind as Kind | null })),
-    ...addControls().map((el) => ({ el, kind: null as Kind | null })),
+    ...titles().map((t) => ({ el: t.el, kind: t.kind as Kind | null, text: norm(cleanText(t.el)) })),
+    ...addControls().map((el) => ({ el, kind: null as Kind | null, text: '' })),
   ].sort((a, b) => (before(a.el, b.el) ? -1 : 1));
   const out: Section[] = [];
-  for (let i = 1; i < markers.length; i++) {
-    const prev = markers[i - 1];
-    if (markers[i].kind === null && prev.kind) out.push({ kind: prev.kind, title: prev.el, add: markers[i].el });
+  let first: (typeof markers)[number] | null = null; // first of a run of the same title
+  for (const m of markers) {
+    if (m.kind === null) {
+      if (first?.kind) out.push({ kind: first.kind, title: first.el, add: m.el });
+      first = null;
+    } else if (!first || first.text !== m.text) {
+      first = m;
+    }
   }
   return out;
 }

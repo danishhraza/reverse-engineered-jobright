@@ -123,3 +123,70 @@ describe('Greenhouse resume upload', () => {
     expect(second.fields.find((f) => f.key === 'resume')).toMatchObject({ status: 'filled' });
   }, 120000);
 });
+
+describe('Greenhouse education: an "Education" header in every block', () => {
+  // As on job-boards.greenhouse.io: each school is an .education--form with its own
+  // "Education" header and react-selects; "Add another" appends the next one.
+  // Adding block 2 used to make its header the section start, hiding block 1, so
+  // it looked like the add hadn't worked.
+  const SCHOOLS = ['Big Tech University', 'Example State University', 'Other College'];
+  const DEGREES = ["Bachelor's Degree", "Master's Degree", 'Doctorate'];
+  const MAJORS = ['Computer Science', 'Mathematics'];
+  let picked: Record<string, string>;
+
+  function select(host: HTMLElement, id: string, options: string[]): Promise<void> {
+    const root = createRoot(host);
+    return act(async () => {
+      root.render(
+        createElement(Select, {
+          inputId: id,
+          classNamePrefix: 'select',
+          options: options.map((o) => ({ value: o, label: o })),
+          onChange: (v: { label: string } | null) => (picked[id] = v?.label ?? ''),
+        } as never),
+      );
+    });
+  }
+
+  async function addBlock(): Promise<void> {
+    const list = document.getElementById('edu-list')!;
+    const i = list.children.length;
+    const form = document.createElement('div');
+    form.className = 'education--form';
+    form.innerHTML = `<hr><div class="education--header"><p class="body body--medium">Education</p><button type="button" class="icon-button" aria-label="Remove education"></button></div>
+      ${['school', 'degree', 'discipline']
+        .map((k) => `<div class="select"><label id="${k}--${i}-label" for="${k}--${i}" class="label select__label">${k[0].toUpperCase() + k.slice(1)}</label><div class="rs" data-k="${k}"></div></div>`)
+        .join('')}`;
+    list.appendChild(form);
+    const opts: Record<string, string[]> = { school: SCHOOLS, degree: DEGREES, discipline: MAJORS };
+    for (const host of Array.from(form.querySelectorAll<HTMLElement>('.rs'))) await select(host, `${host.dataset.k}--${i}`, opts[host.dataset.k!]);
+  }
+
+  beforeEach(async () => {
+    picked = {};
+    document.body.innerHTML = `<form><label for="fn">First Name*</label><input id="fn">
+      <div class="education--container"><div id="edu-list"></div><button class="add-another-button" type="button" id="add">Add another</button></div>
+      <label for="li">LinkedIn Profile</label><input id="li"></form>`;
+    await addBlock();
+    document.getElementById('add')!.addEventListener('click', () => setTimeout(() => void addBlock(), 100));
+  });
+
+  it('adds the second school and fills both', async () => {
+    const p = exampleProfile('swe');
+    p.education = [
+      { school: 'Big Tech University', degree: 'Master of Science', major: 'Computer Science', end: { year: 2026, month: 5 } },
+      { school: 'Example State University', degree: 'Bachelor of Science', major: 'Computer Science', end: { year: 2023, month: 5 } },
+    ];
+    const report = await run({ ...base, profile: p });
+    expect(document.querySelectorAll('.education--form')).toHaveLength(2);
+    expect(picked).toMatchObject({
+      'school--0': 'Big Tech University',
+      'degree--0': "Master's Degree",
+      'discipline--0': 'Computer Science',
+      'school--1': 'Example State University',
+      'degree--1': "Bachelor's Degree",
+      'discipline--1': 'Computer Science',
+    });
+    expect(report.fields.find((f) => /Could not add/.test(f.reason ?? ''))).toBeUndefined();
+  }, 60000);
+});
