@@ -1,5 +1,6 @@
 import { isKnownAts, pickAdapter } from '../adapters';
-import { getLearned, getSettings } from '../profile/storage';
+import { getLearned, getSettings, setSettings } from '../profile/storage';
+import { hiddenOn } from '../profile/sites';
 import { loadSetup } from './context';
 import { probe, step, submitReady, type StepRequest } from './autopilot';
 import { snapshot } from './snapshot';
@@ -243,7 +244,7 @@ function updateFab(r: FillReport): void {
 async function mountFab(): Promise<void> {
   if (window !== window.top || fab) return;
   const settings = await getSettings();
-  if (!settings.showFab) return;
+  if (!settings.showFab || hiddenOn(location.hostname, settings.fabHiddenSites)) return;
   // Embedded ATS iframes (Greenhouse on company sites) count too.
   const embedded = !!document.querySelector('iframe[src*="greenhouse.io"], iframe[src*="lever.co"], iframe[src*="ashbyhq.com"], iframe[src*="myworkday"]');
   if (!isKnownAts() && !embedded && !hasForm()) return;
@@ -267,13 +268,21 @@ async function mountFab(): Promise<void> {
       button[data-state="busy"] .stop { display: inline-block; }
       button[data-state="busy"] .x { display: none; }
       button[data-state="busy"] { cursor: default; }
+      .ask { display: none; gap: 6px; align-items: center; }
+      .ask span { padding: 5px 10px; border-radius: 999px; background: rgba(255,255,255,.14); font-size: 12px; white-space: nowrap; }
+      .ask span:hover { background: rgba(255,255,255,.26); }
+      button[data-ask] .ask { display: inline-flex; }
+      button[data-ask] .dot, button[data-ask] .t, button[data-ask] .x, button[data-ask] .stop { display: none !important; }
       @keyframes p { 50% { opacity: .3; } }
     </style>
-    <button part="b" data-state="idle"><span class="dot"></span><span class="t">Autofill</span><span class="stop" title="Stop autofill">■ Stop</span><span class="x" title="Hide">✕</span></button>`;
+    <button part="b" data-state="idle"><span class="dot"></span><span class="t">Autofill</span><span class="stop" title="Stop autofill">■ Stop</span><span class="x" title="Hide">✕</span><span class="ask"><span class="now">Hide for now</span><span class="never"></span></span></button>`;
   const btn = shadow.querySelector('button')!;
   const label = shadow.querySelector('.t') as HTMLElement;
   fab = { root: btn, label };
-  btn.addEventListener('click', (e) => {
+  // "✕" asks: hide it just for now, or never show it on this site again.
+  const site = location.hostname.replace(/^www\./, '');
+  shadow.querySelector('.never')!.textContent = `Never on ${site}`;
+  btn.addEventListener('click', async (e) => {
     const t = e.target as HTMLElement;
     if (t.classList.contains('stop')) {
       setFab('busy', 'Stopping…');
@@ -281,7 +290,16 @@ async function mountFab(): Promise<void> {
       return;
     }
     if (t.classList.contains('x')) {
-      host.remove();
+      btn.dataset.ask = '1';
+      return;
+    }
+    if (btn.dataset.ask) {
+      if (t.classList.contains('now')) host.remove();
+      else if (t.classList.contains('never')) {
+        const { fabHiddenSites } = await getSettings();
+        await setSettings({ fabHiddenSites: [...new Set([...fabHiddenSites, site])] });
+        host.remove();
+      } else delete btn.dataset.ask; // clicked beside the choices: back to the button
       return;
     }
     if (btn.dataset.state === 'busy') return;

@@ -28,6 +28,11 @@
       .card > .row { margin-top: 4px; flex-wrap: wrap; }
       #facts label { display: flex; gap: 8px; align-items: center; }
       #facts select { width: auto; min-width: 200px; }
+      #fabSitesBox { display: grid; gap: 8px; margin: 6px 0 0 25px; }
+      #fabSitesBox label { font-size: 13px; color: var(--muted); }
+      #fabSitesBox textarea { max-width: 420px; }
+      #fabSitesBox.off { opacity: .5; }
+      @media (max-width: 600px) { #fabSitesBox { margin-left: 0; } }
       #account label:not(.toggle), #llm label:not(.toggle) { display: grid; gap: 4px; font-size: 13px; color: var(--muted); }
       #account input:not([type=checkbox]), #llm input:not([type=checkbox]) { max-width: 420px; }
       #llm textarea { color: var(--text); }
@@ -66,6 +71,11 @@
         <label class="toggle"><input type="checkbox" id="overwrite" /> Replace answers the site filled in itself, for example from its own resume parser</label>
         <label class="toggle"><input type="checkbox" id="learn" /> Learn answers I type into flagged fields (asks before saving)</label>
         <label class="toggle"><input type="checkbox" id="showFab" /> Show the floating Autofill button on application pages</label>
+        <div id="fabSitesBox">
+          <label for="fabSites">Never show the button on these sites, one per line (their subdomains too). It starts with the big everyday sites; remove any you want it back on. You can also add a site from the button itself: press its ✕, then "Never on…".</label>
+          <textarea id="fabSites" rows="8" spellcheck="false" placeholder="youtube.com"></textarea>
+          <div class="row"><button id="fabSitesSave" class="primary">Save sites</button><button id="fabSitesReset">Back to the usual list</button><span id="fabSitesMsg" class="muted"></span></div>
+        </div>
       </div>
     </section>
 

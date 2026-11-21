@@ -3,6 +3,7 @@ import { getAccount, getLearned, getResume, getSettings, getStore, setAccount, s
 import type { ProfileStore, Settings } from '../types';
 import { getLlm, setLlm } from '../queue/store';
 import { DEFAULT_LLM } from '../queue/types';
+import { parseSites, siteOf, USUAL_HIDDEN_SITES } from '../profile/sites';
 
 const $ = <T extends HTMLElement>(id: string) => document.getElementById(id) as T;
 const editor = $<HTMLTextAreaElement>('editor');
@@ -31,6 +32,7 @@ async function render(): Promise<void> {
   const [store, settings, learned] = await Promise.all([getStore(), getSettings(), getLearned()]);
   editor.value = store ? JSON.stringify(store, null, 2) : '';
   for (const k of ['autoAdvance', 'overwrite', 'learn', 'showFab'] as const) $<HTMLInputElement>(k).checked = settings[k];
+  renderFabSites(settings);
 
   const list = $('profiles');
   list.innerHTML = '';
@@ -132,8 +134,32 @@ $('exportBtn').addEventListener('click', async () => {
 });
 
 for (const k of ['autoAdvance', 'overwrite', 'learn', 'showFab'] as const) {
-  $<HTMLInputElement>(k).addEventListener('change', (e) => setSettings({ [k]: (e.target as HTMLInputElement).checked } as Partial<Settings>));
+  $<HTMLInputElement>(k).addEventListener('change', async (e) => renderFabSites(await setSettings({ [k]: (e.target as HTMLInputElement).checked } as Partial<Settings>)));
 }
+
+// ---------- Sites without the floating button ----------
+
+function renderFabSites(settings: Settings): void {
+  $<HTMLTextAreaElement>('fabSites').value = settings.fabHiddenSites.join('\n');
+  $('fabSitesBox').classList.toggle('off', !settings.showFab);
+}
+
+async function saveFabSites(sites: string[], note: string): Promise<void> {
+  renderFabSites(await setSettings({ fabHiddenSites: sites }));
+  $('fabSitesMsg').textContent = note;
+}
+
+$('fabSitesSave').addEventListener('click', () => {
+  const text = $<HTMLTextAreaElement>('fabSites').value;
+  const sites = parseSites(text);
+  const dropped = text.split(/[\n,]+/).filter((l) => l.trim() && !siteOf(l)).length;
+  void saveFabSites(sites, `Saved. The button stays hidden on ${sites.length} site${sites.length === 1 ? '' : 's'}.${dropped > 0 ? ` ${dropped} line${dropped === 1 ? " wasn't a site and was" : "s weren't sites and were"} left out.` : ''}`);
+});
+$('fabSitesReset').addEventListener('click', () => void saveFabSites([...USUAL_HIDDEN_SITES], 'Back to the usual list.'));
+// The ✕ on the button can add a site while this page is open.
+chrome.storage.onChanged.addListener((ch) => {
+  if (ch.settings && document.activeElement !== $('fabSites')) void getSettings().then(renderFabSites);
+});
 
 // ---------- Job site login ----------
 

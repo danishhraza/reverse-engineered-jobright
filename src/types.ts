@@ -1,3 +1,5 @@
+import { USUAL_HIDDEN_SITES } from './profile/sites';
+
 // Profile schema. A ProfileStore holds one shared `base` plus per-resume
 // profiles that only store what they change (`overrides`). Arrays in overrides
 // replace the base array wholesale; objects are deep-merged.
@@ -164,6 +166,8 @@ export interface Settings {
   learn: boolean;
   /** Show the floating Autofill button on job application pages. */
   showFab: boolean;
+  /** Sites (and their subdomains) where the floating button never shows. */
+  fabHiddenSites: string[];
 }
 
 export const DEFAULT_SETTINGS: Settings = {
@@ -171,6 +175,7 @@ export const DEFAULT_SETTINGS: Settings = {
   overwrite: true,
   learn: true,
   showFab: true,
+  fabHiddenSites: USUAL_HIDDEN_SITES,
 };
 
 // ----- Fill report -----
