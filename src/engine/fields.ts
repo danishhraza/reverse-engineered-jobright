@@ -1,4 +1,4 @@
-import { cleanText, isVisible, squash } from './dom';
+import { cleanText, isVisible, setNativeValue, squash } from './dom';
 import { isPlaceholderOption } from './match';
 
 // Field discovery: turn the page's inputs, selects, custom dropdowns, radio
@@ -300,6 +300,30 @@ export interface ScanOptions {
   exclude?: string;
 }
 
+// Boxes that catch bots: hidden from people, and filling one makes the site
+// quietly refuse the form (Workday's "beecatcher": "Enter website. This input is
+// for robots only…" — after that, Create Account does nothing until a reload).
+const TRAP_ATTR = /recaptcha|captcha|honeypot|beecatcher|bot[_-]?(field|trap|check)|hp[_-]?(field|input)/i;
+const TRAP_LABEL = /\brobots? only\b|\bif you(?:'| a)re (?:a )?human\b|\bnot for humans\b|\b(?:leave|keep) (?:this )?(?:field |box )?(?:blank|empty)\b|\bdo not (?:fill|enter|complete)\b.{0,40}\b(?:human|person|people)\b/i;
+
+/** A bot trap, not a question: never fill it. */
+export function isTrap(el: HTMLElement): boolean {
+  if (TRAP_ATTR.test(`${(el as HTMLInputElement).name ?? ''} ${el.id} ${el.getAttribute('data-automation-id') ?? ''}`)) return true;
+  return TRAP_LABEL.test(`${labelFor(el)} ${el.getAttribute('placeholder') ?? ''}`);
+}
+
+/** Empty any bot trap that has something in it (Chrome's own autofill, or an earlier fill). */
+export function clearTraps(root: ParentNode = document): number {
+  let n = 0;
+  for (const el of Array.from(root.querySelectorAll<HTMLInputElement | HTMLTextAreaElement>('input[type="text"], input:not([type]), input[type="url"], input[type="email"], textarea'))) {
+    if (el.value && !el.closest('.rej-ui') && isTrap(el)) {
+      setNativeValue(el, '');
+      n++;
+    }
+  }
+  return n;
+}
+
 export function scanFields(opts: ScanOptions = {}): Field[] {
   const root = opts.root ?? document;
   const exclude = opts.exclude ?? '.rej-ui';
@@ -343,7 +367,7 @@ export function scanFields(opts: ScanOptions = {}): Field[] {
     const input = el as HTMLInputElement;
     const type = (input.type || '').toLowerCase();
     if (el.tagName === 'INPUT' && SKIP_INPUT_TYPES.has(type)) continue;
-    if (input.disabled || /recaptcha|captcha|honeypot/i.test(`${input.name} ${el.id}`)) continue;
+    if (input.disabled || isTrap(el)) continue;
     if (type === 'file') {
       // File inputs are usually visually hidden behind an "Attach" button; don't require visibility,
       // but something around them must show. A form that's hidden until you press Apply (Trakstar)

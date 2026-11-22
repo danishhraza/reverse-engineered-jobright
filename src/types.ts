@@ -56,12 +56,33 @@ export interface Work {
   company: string;
   title: string;
   location?: string;
-  country?: string; // for forms that ask each job's country
+  /** Where the job was, for forms that ask each job's address (Paylocity). Never your home address. */
+  country?: string;
+  city?: string;
+  state?: string;
+  address1?: string;
+  postalCode?: string;
+  /** The employer's phone number ("Company Phone Number"). */
+  phone?: string;
   start?: YearMonth;
   end?: YearMonth;
   current?: boolean;
+  reasonForLeaving?: string;
+  /**
+   * Someone at this job who can be contacted. With one, "May we contact…?" is Yes and
+   * the supervisor boxes are filled; without one it's No and they're left blank.
+   */
+  reference?: Reference;
   summary?: string;
   bullets?: string[];
+}
+
+export interface Reference {
+  name: string;
+  title?: string;
+  /** Left out = the box is left for you to fill in. */
+  phone?: string;
+  email?: string;
 }
 
 export interface CountryAuth {

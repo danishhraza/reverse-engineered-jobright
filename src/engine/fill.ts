@@ -3,7 +3,7 @@ import type { Answer, FieldReport, Profile } from '../types';
 import { classify, resolve } from './answers';
 import { checkCancel, rethrowCancel, status } from './control';
 import { cleanText, isVisible, realClick, sleep, squash, waitFor, waitForSettle } from './dom';
-import { currentValue, isPressed, scanFields, stampId, type Field } from './fields';
+import { clearTraps, currentValue, isPressed, scanFields, stampId, type Field } from './fields';
 import { fillEntryField } from './entries';
 import { entryFor, fillEntryForms, fillSections } from './sections';
 import { fillField, MIN_MATCH, peekOptions } from './widgets';
@@ -71,6 +71,9 @@ export async function fillPage(opts: PageFillOptions): Promise<FieldReport[]> {
   await waitForSettle(400, 3000);
   checkCancel();
 
+  // A bot trap with something in it makes the site ignore the form: empty it first.
+  clearTraps();
+
   // 1. Resume. (Picking up after you: only if a required resume box is still empty.)
   const initial = scanFields();
   const resumeNeeded = !opts.requiredOnly || initial.some((f) => f.kind === 'file' && f.required && !currentValue(f) && !/cover/i.test(f.label));
@@ -104,7 +107,7 @@ export async function fillPage(opts: PageFillOptions): Promise<FieldReport[]> {
         ctx.extra.push(r);
         emit();
       },
-      fallback: (f: Field) => fillOne(f, opts),
+      fallback: (f: Field) => fillOne(f, opts, true),
       aiPick: (f: Field, note: string) => aiFill(f, opts, note),
     };
     await fillSections(sectionOpts);
@@ -192,8 +195,18 @@ function optionList(f: Field): string[] | undefined {
   return out.length ? out.slice(0, 40) : undefined;
 }
 
-async function fillOne(f: Field, opts: PageFillOptions): Promise<FieldReport | null> {
+/** Your own details: never put into a job or school entry (its address, phone, county…). */
+const PERSONAL_KEYS = new Set([
+  'firstName', 'lastName', 'middleName', 'preferredFirstName', 'fullName', 'email', 'phone', 'phoneCountryCode',
+  'address1', 'address2', 'city', 'state', 'county', 'postalCode', 'country', 'location', 'linkedin', 'github', 'portfolio', 'twitter',
+]);
+
+async function fillOne(f: Field, opts: PageFillOptions, inEntry = false): Promise<FieldReport | null> {
   const c = classify(f, opts.profile.answers, opts.learned);
+  if (inEntry && c && PERSONAL_KEYS.has(c.key)) {
+    const why = "Not in your profile for this entry (your own details aren't used here)";
+    return f.required && !currentValue(f) ? row(f, 'flagged', 0, undefined, why) : row(f, 'skipped', 0, undefined, why, currentValue(f) || undefined);
+  }
   if (!c) {
     // Optional dropdowns too: picking from a list is cheap and rarely wrong. Optional essays are left.
     if (!currentValue(f) && (f.required || f.choices?.length || f.kind === 'select' || f.kind === 'combobox')) {
@@ -231,6 +244,12 @@ async function fillOne(f: Field, opts: PageFillOptions): Promise<FieldReport | n
       const again = await applyDesired(f, { text: String(plan.single) }, c.score, c.key, opts, "One number (the box wouldn't take a range)");
       if (again.status === 'filled') return again;
     }
+  }
+  // A phone box that won't take plain digits: the number as written in your profile.
+  const written = c.key === 'phone' && f.kind === 'text' ? res.desired.alts?.[0] : undefined;
+  if (written && (r.status === 'flagged' || f.el.getAttribute('aria-invalid') === 'true')) {
+    const again = await applyDesired(f, { text: written }, c.score, c.key, opts, "As written in your profile (the box wouldn't take plain digits)");
+    if (again.status === 'filled') return again;
   }
   // Country -> State / County lists reload after a country is picked; let them before going on.
   if (c.key === 'country' || c.key === 'state' || c.key === 'phoneCountryCode') await waitForSettle(300, 2500);

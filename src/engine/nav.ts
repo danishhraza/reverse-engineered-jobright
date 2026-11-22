@@ -21,7 +21,7 @@ const NEXT = /^(next|continue|save (and|&) continue|save (and|&) next|next step|
 const NOT_NEXT = /\b(with|linkedin|google|indeed|apple|facebook|microsoft|shopping|reading|later)\b|submit(?! (my |your )?profile)/i;
 const SUBMIT = /^(submit( (my |your |the )?application)?|send( my)? application|complete( my)? application|finish( application)?|submit and finish)$/i;
 const APPLY =
-  /^(apply( now| today| for this (job|position|role|opportunity)| to (this )?(job|position|role)| online| here| manually)?|easy apply|(start|begin|continue)( your| my| an?| the)? application|apply on (the )?company( site|'s site| website)|i'?m interested|submit (an |your )?application|autofill with (resume|cv)|apply (with|using) (my )?(resume|cv)|apply (with|via|using) [\w .]+)$/i;
+  /^(apply( now| today| for this (job|position|role|opportunity)( online)?| to (this )?(job|position|role)| online| here| manually)?|easy apply|(start|begin|continue)( your| my| an?| the)? application|apply on (the )?company( site|'s site| website)|i'?m interested|submit (an |your )?application|autofill with (resume|cv)|apply (with|using) (my )?(resume|cv)|apply (with|via|using) [\w .]+)$/i;
 
 /**
  * Which Apply-ish button to prefer, best first: fill the form ourselves ("Apply manually"),
@@ -69,13 +69,39 @@ export function genericFinal(): boolean {
   return !!submitButton() && !genericNext();
 }
 
-/** The job posting's best Apply button (see applyRank). */
+/**
+ * The Apply text of a button, if it has one. Its whole text, else its title, else one
+ * of its parts: iCIMS puts a long and a short label side by side ("Apply for this job
+ * online" + "Apply", one hidden by CSS), which read together as neither.
+ */
+export function applyText(b: HTMLElement): string | null {
+  const whole = buttonText(b);
+  const texts = [whole, b.getAttribute('title') ?? '', ...Array.from(b.querySelectorAll('span, div')).map((n) => cleanText(n))];
+  return texts.map(squash).find((t) => t && t.length <= 50 && APPLY.test(t)) ?? null;
+}
+
+/** A button that opens a menu of ways to apply (SuccessFactors' "Apply now ▾") instead of applying. */
+export function isMenuToggle(b: HTMLElement): boolean {
+  const toggle = b.getAttribute('data-toggle') ?? b.getAttribute('data-bs-toggle');
+  return toggle === 'dropdown' || b.classList.contains('dropdown-toggle') || /^(true|menu)$/.test(b.getAttribute('aria-haspopup') ?? '');
+}
+
+const SOCIAL = /\b(linkedin|indeed|facebook|google|seek|xing|help)\b/i;
+
+/** The plain "Apply Now" in a toggle's open menu (not "Apply with LinkedIn"). */
+export function applyMenuItem(toggle: HTMLElement): HTMLElement | null {
+  const id = toggle.getAttribute('aria-controls');
+  const scope = (id && document.getElementById(id)) || toggle.parentElement?.closest('.btn-group, .dropdown, .dropup, [class*="dropdown"]') || toggle.parentElement;
+  if (!scope) return null;
+  const items = visibleButtons(scope).filter((b) => b !== toggle && !isMenuToggle(b) && applyText(b));
+  return items.sort((a, b) => Number(SOCIAL.test(applyText(a)!)) - Number(SOCIAL.test(applyText(b)!)) || applyRank(applyText(a)!) - applyRank(applyText(b)!))[0] ?? null;
+}
+
+/** The job posting's best Apply button (see applyRank). A menu toggle comes after a real button. */
 export function applyButton(): HTMLElement | null {
-  const bs = visibleButtons().filter((b) => {
-    const t = buttonText(b);
-    return t.length <= 50 && APPLY.test(t);
-  });
-  return bs.sort((a, b) => applyRank(buttonText(a)) - applyRank(buttonText(b)))[0] ?? null;
+  const bs = visibleButtons().filter((b) => applyText(b));
+  const rank = (b: HTMLElement) => applyRank(applyText(b)!) + (isMenuToggle(b) ? 0.5 : 0);
+  return bs.sort((a, b) => rank(a) - rank(b))[0] ?? null;
 }
 
 /** What identifies the current step of a single-URL multi-step form. */

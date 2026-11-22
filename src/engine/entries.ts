@@ -60,13 +60,42 @@ function locationPart(loc: string | undefined, part: 'city' | 'state'): string |
   return part === 'city' ? bits[0] : bits[1];
 }
 
+/** Nothing for it in this entry: required ones are flagged for you, optional ones left blank. */
+const blank = (f: Field) => (f.required ? 'ask' : 'skip');
+const text = (s: string | undefined, f: Field): Desired | 'ask' | 'skip' => (s ? { text: s } : blank(f));
+
+const MAY_CONTACT = /\b(may|can|could) we contact\b|\b(ok|okay|alright) to contact\b|permission to contact|contact (this |your )?(current |previous )?(employer|supervisor|manager|reference)/;
+const ABOUT_SUPERVISOR = /supervisor|manager|reference|referee|\bboss\b|reports? to|reporting to/;
+
 export const workResolver: EntryResolver<Work> = (f, label, w) => {
   if (asksCurrent(f, label)) return yesNo(!!w.current);
+  // References: only for the job that has one; the rest say no and stay blank.
+  if (MAY_CONTACT.test(label)) return yesNo(!!w.reference);
+  if (ABOUT_SUPERVISOR.test(label)) {
+    const r = w.reference;
+    if (/phone|telephone|\btel\b|mobile|\bnumber\b/.test(label)) return r?.phone ? { text: r.phone } : 'skip';
+    if (/e-?mail/.test(label)) return text(r?.email, f);
+    if (/title|position|role|designation/.test(label)) return text(r?.title, f);
+    return text(r?.name, f);
+  }
+  // The job's own address and phone: never yours.
+  if (/phone|telephone|\btel\b|\bfax\b/.test(label)) return text(w.phone, f);
+  if (/e-?mail/.test(label)) return blank(f);
+  if (/address|street/.test(label)) return /\b(2|two|line 2)\b/.test(label) ? 'skip' : text(w.address1, f);
+  if (/\bzip\b|postal|post ?code/.test(label)) return text(w.postalCode, f);
+  if (/\bcounty\b|\bdistrict\b/.test(label)) return blank(f);
+  if (/reason (for )?leaving|why did you leave|reason .*\bleav/.test(label)) return w.current ? 'skip' : text(w.reasonForLeaving, f);
   if (/title|position|role$/.test(label)) return { text: w.title };
   if (/company|employer|organi[sz]ation/.test(label)) return { text: w.company };
   if (/country/.test(label)) return w.country ? { text: w.country } : 'ask';
-  if (/\bcity\b/.test(label)) return locationPart(w.location, 'city') ? { text: locationPart(w.location, 'city')! } : 'ask';
-  if (/\bstate\b|province/.test(label)) return locationPart(w.location, 'state') ? { text: locationPart(w.location, 'state')! } : 'ask';
+  if (/\bcity\b/.test(label)) {
+    const city = w.city ?? locationPart(w.location, 'city');
+    return city ? { text: city } : 'ask';
+  }
+  if (/\bstate\b|province/.test(label)) {
+    const state = w.state ?? locationPart(w.location, 'state');
+    return state ? { text: state } : 'ask';
+  }
   if (/location/.test(label)) return w.location ? { text: w.location } : 'skip';
   if (/^from$|start/.test(label)) return dateDesired(f, w.start) ?? 'skip';
   if (/^to$|end/.test(label)) return w.current ? 'skip' : (dateDesired(f, w.end) ?? 'skip');
@@ -85,6 +114,8 @@ export const eduResolver: EntryResolver<Education> = (f, label, e) => {
   if (/degree|diploma/.test(label)) return { text: e.degree, alts: degreeAlts(e.degree, e.degreeShort) };
   if (/field of study|major|discipline|concentration|area of study/.test(label)) return { text: e.major };
   if (/gpa|overall result|grade/.test(label)) return e.gpa ? { text: e.gpa } : 'skip';
+  // The school's address and phone: not in the profile, and never yours.
+  if (/phone|telephone|e-?mail|address|street|\bzip\b|postal|post ?code|\bcounty\b/.test(label)) return blank(f);
   if (/country/.test(label)) return e.country ? { text: e.country } : 'ask';
   if (/\bcity\b/.test(label)) return e.city ? { text: e.city } : 'ask';
   if (/\bstate\b|province/.test(label)) return e.state ? { text: e.state } : 'ask';

@@ -308,7 +308,11 @@ export function resolve(c: Classification, p: Profile, field: Field): Resolution
       if (!field.required && /\b(home|work|office|business|alternate|alt|other|secondary|additional|landline|fax|evening|day ?time)\b/.test(lnorm)) {
         return { skip: 'Optional extra phone number — left blank' };
       }
-      return t(per.phone);
+      // Plain digits: many boxes reject "(555) 010-0100". The written form is the fallback.
+      {
+        const digits = phoneDigits(per.phone, per.phoneCountryCode);
+        return digits && digits !== per.phone ? { desired: { text: digits, alts: [per.phone] } } : t(per.phone);
+      }
     case 'linkedin':
       return t(per.linkedin);
     case 'github':
@@ -565,6 +569,15 @@ function durations(text: string): number[] {
 }
 
 /** How many days until you could start: "Within 2 months after offer acceptance" -> 60, "Immediately" -> 0. */
+/** "(555) 010-0100" / "+1 555-010-0100" -> "5550100100": the national number, digits only. */
+export function phoneDigits(phone: string | undefined, countryCode?: string): string | undefined {
+  let d = (phone ?? '').replace(/\D/g, '');
+  if (!d) return undefined;
+  const code = (countryCode ?? '').replace(/\D/g, '');
+  if (code && d.length > 10 && d.startsWith(code)) d = d.slice(code.length);
+  return d;
+}
+
 export function startInDays(text: string | undefined): number | null {
   const t = (text ?? '').toLowerCase();
   if (/immediate|asap|right away|\bnow\b/.test(t)) return 0;

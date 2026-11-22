@@ -1,7 +1,7 @@
 import { looksLikeForm, scanFields } from '../engine/fields';
 import { classify } from '../engine/answers';
 import { cleanText, isVisible, realClick, sleep, squash, waitFor, waitForSettle } from '../engine/dom';
-import { applyButton, buttonText, disabledNext, genericNext, submitButton } from '../engine/nav';
+import { applyButton, applyMenuItem, applyText, buttonText, disabledNext, genericNext, isMenuToggle, submitButton } from '../engine/nav';
 import { isRunning, run } from '../engine/run';
 import type { FillReport } from '../types';
 import type { Probe, StepOutcome } from '../queue/types';
@@ -85,7 +85,7 @@ function probeKind(text: string, sig: string): Probe {
   if (formy) return { kind: 'form', sig };
   if (APPLIED.test(text)) return { kind: 'applied', sig, detail: squash(APPLIED.exec(text)?.[0] ?? '') };
   const apply = applyButton();
-  if (apply) return { kind: 'apply', sig, detail: buttonText(apply) };
+  if (apply) return { kind: 'apply', sig, detail: applyText(apply) ?? buttonText(apply) };
   if (CLOSED.test(text)) return { kind: 'closed', sig, detail: squash(CLOSED.exec(text)?.[0] ?? '') };
   // A form without the usual fields (a short custom form): still worth filling.
   if (looksLikeForm()) return { kind: 'form', sig };
@@ -114,7 +114,7 @@ export async function step(req: StepRequest, onReport: (r: FillReport) => void):
   if (p.kind === 'blocker') return blockerStep();
   if (p.kind === 'account') return accountStep(req, onReport);
   // Read the description before pressing anything: Apply usually leaves the job page.
-  if (p.kind === 'apply') return withJd(applyStep(), jobDescription());
+  if (p.kind === 'apply') return withJd(await applyStep(), jobDescription());
   if (p.kind === 'form') {
     const jd = jobDescription();
     return withJd(await formStep(req, onReport), jd);
@@ -129,7 +129,9 @@ function withJd(o: StepOutcome, jd: string): StepOutcome {
 /** Click `el`; an ordinary link is opened by the background instead (script clicks can't open new tabs). */
 function press(el: HTMLElement, what: string): StepOutcome {
   const a = el.closest('a');
-  if (a?.href && /^https?:/.test(a.href) && (a.target === '_blank' || !a.getAttribute('onclick'))) return { kind: 'acted', action: `Opened "${what}"`, navigate: a.href };
+  // href="#" / "javascript:…": a script does the work, so it has to be clicked.
+  const scripted = /^\s*(#|javascript:)/i.test(a?.getAttribute('href') ?? '');
+  if (a?.href && !scripted && /^https?:/.test(a.href) && (a.target === '_blank' || !a.getAttribute('onclick'))) return { kind: 'acted', action: `Opened "${what}"`, navigate: a.href };
   realClick(el);
   return { kind: 'acted', action: `Clicked "${what}"` };
 }
@@ -146,11 +148,19 @@ function blockerStep(): StepOutcome {
 
 // ---------- Apply button ----------
 
-function applyStep(): StepOutcome {
+async function applyStep(): Promise<StepOutcome> {
   const btn = applyButton();
   if (!btn) return { kind: 'nothing' };
-  const text = buttonText(btn);
+  const text = applyText(btn) ?? buttonText(btn);
   if (/linkedin\.com$/.test(location.hostname) && /easy apply/i.test(text)) return { kind: 'skipped', reason: "LinkedIn Easy Apply isn't automated (against LinkedIn's terms)" };
+  // "Apply now ▾" opens a menu (Apply Now / Apply with LinkedIn): open it and pick the plain one.
+  if (isMenuToggle(btn)) {
+    if (btn.getAttribute('aria-expanded') !== 'true' || !applyMenuItem(btn)) realClick(btn);
+    const item = await waitFor(() => applyMenuItem(btn), { timeout: 3000 });
+    if (!item) return { kind: 'needs-you', reason: `"${text}" opened a menu with no plain Apply option — pick one, then press Continue` };
+    const out = press(item, applyText(item) ?? buttonText(item));
+    return out.kind === 'acted' ? { ...out, action: `"${text}" menu: ${out.action}` } : out;
+  }
   return press(btn, text);
 }
 
