@@ -2,6 +2,7 @@ import { jobsFromCsv } from '../queue/csv';
 import { getAutopilot, getQueue, getRunner, setAutopilot, today } from '../queue/store';
 import type { AutopilotSettings, JobStatus, QueueJob } from '../queue/types';
 import { detailsRow, esc, firstTab, summaryChips, type Tab } from './job-details';
+import { initFindJobs } from './find-jobs';
 
 // The Autopilot page: queue, Start/Pause, per-job actions, and settings.
 // It only reads storage; every change goes through the background.
@@ -377,3 +378,4 @@ chrome.storage.onChanged.addListener((changes, area) => {
   else render();
 });
 render();
+void initFindJobs((jobs) => send({ action: 'add', jobs }));

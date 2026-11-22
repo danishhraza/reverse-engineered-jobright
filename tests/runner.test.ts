@@ -106,6 +106,11 @@ describe('queue', () => {
     expect(r).toMatchObject({ added: 1, duplicates: 1 });
     expect(queue()).toHaveLength(3);
   });
+
+  it('keeps the job description and profile that Find jobs sends along', async () => {
+    await runner.queueAction({ action: 'add', jobs: [{ url: 'https://jobs.lever.co/a/7', title: 'SWE', company: 'A', profile: 'SWE', jd: 'Pay $90,000 - $110,000.' }] });
+    expect(queue().at(-1)).toMatchObject({ url: 'https://jobs.lever.co/a/7', profile: 'SWE', jd: 'Pay $90,000 - $110,000.', status: 'queued' });
+  });
 });
 
 describe('a job, start to finish', () => {

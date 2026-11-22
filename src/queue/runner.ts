@@ -683,7 +683,7 @@ export async function recover(): Promise<void> {
 // ---------- actions from the queue page ----------
 
 export type QueueAction =
-  | { action: 'add'; jobs: { url: string; company?: string; title?: string; profile?: string }[] }
+  | { action: 'add'; jobs: { url: string; company?: string; title?: string; profile?: string; jd?: string }[] }
   | { action: 'continue'; id: string }
   | { action: 'markApplied'; id: string }
   | { action: 'skip'; id: string }

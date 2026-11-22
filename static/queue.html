@@ -54,6 +54,24 @@
       td.acts button { padding: 4px 9px; font-size: 12.5px; margin-left: 4px; }
       .log { margin-top: 4px; font: 11px/1.4 ui-monospace, Consolas, monospace; color: var(--muted); white-space: pre-wrap; }
       #add textarea { min-height: 96px; }
+
+      /* Find jobs */
+      #find { display: grid; gap: 12px; }
+      #find label:not(.toggle) { display: grid; gap: 4px; font-size: 13px; color: var(--muted); }
+      #find small { font-size: 12px; }
+      .find-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+      .find-row { display: flex; gap: 14px 18px; flex-wrap: wrap; align-items: end; }
+      .find-row select { width: auto; min-width: 120px; }
+      .find-row input[type=number] { width: 96px; }
+      .money { display: inline-flex; align-items: center; gap: 4px; color: var(--text); }
+      #find fieldset { border: 0; margin: 0; padding: 0; display: flex; gap: 4px 14px; flex-wrap: wrap; align-items: center; }
+      #find legend { font-size: 13px; color: var(--muted); padding: 0; margin-bottom: 4px; width: 100%; }
+      #find label.toggle { padding: 2px 0; }
+      #find details.token summary { cursor: pointer; font-size: 13px; color: var(--muted); }
+      #findMsg.err { color: var(--bad); }
+      #findMsg.ok { color: var(--accent); }
+      #usage { font-size: 12.5px; }
+      @media (max-width: 720px) { .find-grid { grid-template-columns: 1fr; } }
       table.ailog { margin-top: 8px; font-size: 12.5px; background: var(--sheet); border-radius: 8px; border: 1px solid var(--border); border-collapse: separate; border-spacing: 0; overflow: hidden; }
       table.ailog td, table.ailog th { padding: 6px 8px; }
       table.ailog th { background: transparent; }
@@ -139,6 +157,42 @@
       </div>
     </div>
     <div id="list"></div>
+
+    <h2>Find jobs</h2>
+    <p class="muted">Searches company career sites through <a href="https://apify.com/fantastic-jobs/career-site-job-listing-api" target="_blank" rel="noreferrer">Fantastic.jobs on Apify</a> and adds what it finds to the queue, each with its job description. Every link goes straight to the company's application page. Apify charges per job found; the free plan includes $5 of credit a month.</p>
+    <div class="card" id="find">
+      <div class="find-grid">
+        <label>Job titles, one per line <textarea id="fTitles" rows="3" placeholder="Software Engineer&#10;Backend Engineer"></textarea><small class="muted">"Soft:*" matches anything starting with Soft.</small></label>
+        <label>Locations, one per line <textarea id="fLocations" rows="3" placeholder="United States&#10;Austin, Texas, United States"></textarea><small class="muted">A country, a city, or "City, State, Country" in full.</small></label>
+      </div>
+      <div class="find-row">
+        <label>Posted in the last <select id="fTime"><option value="1h">hour</option><option value="24h">24 hours</option><option value="7d">7 days</option></select></label>
+        <label>How many <input type="number" id="fCount" min="10" max="500" step="5" /></label>
+        <label>Apply with <select id="fProfile"></select></label>
+        <label>Spend at most <span class="money"><span>$</span><input type="number" id="fMaxUsd" min="0.05" max="20" step="0.05" /></span></label>
+      </div>
+      <div class="find-row">
+        <fieldset><legend>Work</legend>
+          <label class="toggle"><input type="checkbox" name="fWork" value="onsite" /> On-site</label>
+          <label class="toggle"><input type="checkbox" name="fWork" value="hybrid" /> Hybrid</label>
+          <label class="toggle"><input type="checkbox" name="fWork" value="remote" /> Remote</label>
+        </fieldset>
+        <fieldset><legend>Years of experience asked for</legend>
+          <label class="toggle"><input type="checkbox" name="fExp" value="0-2" /> 0-2</label>
+          <label class="toggle"><input type="checkbox" name="fExp" value="2-5" /> 2-5</label>
+          <label class="toggle"><input type="checkbox" name="fExp" value="5-10" /> 5-10</label>
+          <label class="toggle"><input type="checkbox" name="fExp" value="10+" /> 10+</label>
+        </fieldset>
+      </div>
+      <label class="toggle"><input type="checkbox" id="fSupported" /> Only sites Autofill is tested on (Greenhouse, Lever, Ashby, Workday, iCIMS, Taleo, Oracle, Phenom, Eightfold, Trakstar)</label>
+      <label class="toggle"><input type="checkbox" id="fNoAgency" /> Leave out staffing agencies and job boards</label>
+      <details class="token"><summary>Apify API token</summary>
+        <div class="row" style="margin-top:8px;flex-wrap:wrap"><input type="password" id="fToken" autocomplete="off" placeholder="apify_api_…" style="max-width:420px" /><button id="fTokenSave">Save token</button></div>
+        <p class="muted" style="margin:6px 0 0">From Apify → Settings → API &amp; Integrations. Kept only in this browser.</p>
+      </details>
+      <div class="row" style="flex-wrap:wrap;margin-top:4px"><button id="findBtn" class="primary">Find jobs</button><span id="findMsg" class="muted grow"></span></div>
+      <div id="usage" class="muted"></div>
+    </div>
 
     <h2>Add jobs</h2>
     <div class="card" id="add">

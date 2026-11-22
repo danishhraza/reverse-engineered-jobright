@@ -1,4 +1,5 @@
 import { DEFAULT_AUTOPILOT, DEFAULT_LLM, INITIAL_RUNNER, type AutopilotSettings, type LlmSettings, type QueueJob, type RunnerState } from './types';
+import { DEFAULT_SEARCH, type JobSearchSettings } from '../jobs/apify';
 
 // Storage for autopilot (chrome.storage.local):
 //   queue          QueueJob[]
@@ -7,6 +8,7 @@ import { DEFAULT_AUTOPILOT, DEFAULT_LLM, INITIAL_RUNNER, type AutopilotSettings,
 //   llm            LlmSettings (OpenRouter key: plain text in this browser only)
 //   siteAccounts   { [host]: number }  when we created an account on that site
 //   aiAnswers      { [question key]: { answer, confidence } }  answers reused across applications
+//   jobSearch      JobSearchSettings (Apify token: plain text in this browser only; last search)
 //
 // Only the background writes the queue and runner state; pages ask it to by
 // message. Writes go through one promise chain so two updates can't overwrite
@@ -51,6 +53,17 @@ export async function getLlm(): Promise<LlmSettings> {
 export async function setLlm(patch: Partial<LlmSettings>): Promise<LlmSettings> {
   const next = { ...(await getLlm()), ...patch };
   await chrome.storage.local.set({ llm: next });
+  return next;
+}
+
+/** Find jobs: the Apify token and the last search (plain text in this browser only). */
+export async function getJobSearch(): Promise<JobSearchSettings> {
+  const s = await get<Partial<JobSearchSettings>>('jobSearch', {});
+  return { token: s.token, search: { ...DEFAULT_SEARCH, ...s.search } };
+}
+export async function setJobSearch(patch: Partial<JobSearchSettings>): Promise<JobSearchSettings> {
+  const next = { ...(await getJobSearch()), ...patch };
+  await chrome.storage.local.set({ jobSearch: next });
   return next;
 }
 
