@@ -1,4 +1,5 @@
 import type { AiAnswer, AiQuestion } from '../engine/fill';
+import type { SkillPick, SkillPickRequest } from '../engine/skills';
 import type { LlmSettings } from '../queue/types';
 
 // Screening questions the rules can't answer go to a model on OpenRouter
@@ -161,6 +162,61 @@ export function parseGuide(text: string, count: number): GuideAnswer | null {
 export async function askGuide(s: LlmSettings, page: GuidePage): Promise<{ answer: GuideAnswer | null; usage: Usage }> {
   const { text, usage } = await complete(s, GUIDE_SYSTEM, buildGuidePrompt(page), 'click', GUIDE_SCHEMA);
   return { answer: parseGuide(text, page.buttons.length), usage };
+}
+
+// ---------- Which skills to add to a skills box ----------
+
+const SKILLS_SYSTEM = `You help a job applicant fill the "Skills" box of an online application.
+You get the applicant's own skills, what the site's skills list offered when each one was typed in, and the job description.
+Pick up to the given number of options to add. Rules:
+- Only pick options that appear exactly in the lists shown; copy them character for character, with the skill that was typed to find it.
+- Only pick options that are the same skill as one of the applicant's (a different name or spelling is fine: "React" -> "React.js"). Never pick a skill the applicant doesn't have.
+- Prefer skills the job description asks for, then the applicant's strongest general ones.
+- No two picks for the same skill.`;
+
+const SKILLS_SCHEMA = {
+  type: 'object',
+  properties: {
+    picks: {
+      type: 'array',
+      items: {
+        type: 'object',
+        properties: { query: { type: 'string', description: 'The skill that was typed' }, option: { type: 'string', description: 'The exact option to add' } },
+        required: ['query', 'option'],
+        additionalProperties: false,
+      },
+    },
+  },
+  required: ['picks'],
+  additionalProperties: false,
+};
+
+export function buildSkillsPrompt(r: SkillPickRequest): string {
+  return [
+    `Pick up to ${r.max}.`,
+    `Applicant's skills (most relevant first): ${r.mine.join(', ')}`,
+    `What the site offered:\n${r.seen.map((s) => `- typed "${s.query}": ${s.options.map((o) => `"${o}"`).join(', ')}`).join('\n')}`,
+    r.jd ? `Job description (start):\n${r.jd}` : '',
+    'Reply with JSON: {"picks": [{"query": "...", "option": "..."}]}',
+  ]
+    .filter(Boolean)
+    .join('\n\n');
+}
+
+export function parseSkills(text: string): SkillPick[] | null {
+  const m = /\{[\s\S]*\}/.exec(text);
+  if (!m) return null;
+  try {
+    const o = JSON.parse(m[0]) as { picks?: SkillPick[] };
+    return Array.isArray(o.picks) ? o.picks.filter((p) => p && typeof p.query === 'string' && typeof p.option === 'string') : null;
+  } catch {
+    return null;
+  }
+}
+
+export async function askSkills(s: LlmSettings, r: SkillPickRequest): Promise<{ picks: SkillPick[] | null; usage: Usage }> {
+  const { text, usage } = await complete(s, SKILLS_SYSTEM, buildSkillsPrompt(r), 'skills', SKILLS_SCHEMA);
+  return { picks: parseSkills(text), usage };
 }
 
 /** One chat completion; returns the reply text and what it cost. */

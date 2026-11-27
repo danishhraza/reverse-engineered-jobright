@@ -2,6 +2,8 @@ import { cleanText, isVisible, pressKey, realClick, setNativeValue, sleep, squas
 import { checkCancel, isCancelled, status } from './control';
 import { clickTarget, comboboxDisplay, currentValue, isChecked, isPressed, shadowHost, valueBoxText, type Field } from './fields';
 import { isPlaceholderOption, jaccard, matchOption, norm, type Desired } from './match';
+import { knownJobText } from './salary';
+import { MAX_CANDIDATES, MAX_SKILLS, skillPicker, validPicks, type SkillPick, type SkillSearch } from './skills';
 
 // One function per widget kind. Each returns how confident we are that the
 // field now holds the right answer.
@@ -333,8 +335,8 @@ function queriesFor(d: Desired): string[] {
   const qs = [first];
   const words = first.split(/[\s,]+/).filter(Boolean);
   if (words.length > 2) qs.push(words.slice(0, 2).join(' '));
-  for (const a of d.alts ?? []) if (a.length >= 2 && !qs.includes(a)) qs.push(a);
-  return qs.slice(0, 3);
+  for (const a of [...(d.searches ?? []), ...(d.alts ?? [])]) if (a.length >= 2 && !qs.includes(a)) qs.push(a);
+  return qs.slice(0, d.searches?.length ? 4 : 3);
 }
 
 /**
@@ -499,9 +501,6 @@ function closeDropdown(trigger: HTMLElement): void {
 
 // ---------- Tag pickers (skills): type one, pick it, repeat ----------
 
-/** Most tags we'll add; each one waits on the site's search. */
-const MAX_TAGS = 20;
-
 function isTagInput(el: HTMLElement): boolean {
   if (el.getAttribute('aria-autocomplete') || el.getAttribute('role') === 'combobox') return true;
   for (let n = el.parentElement, i = 0; n && i < 3; n = n.parentElement, i++) {
@@ -527,7 +526,11 @@ function tagBox(input: HTMLElement): HTMLElement {
 function chipText(box: HTMLElement): string {
   const clone = box.cloneNode(true) as HTMLElement;
   clone.querySelectorAll(`${OPTION_SEL}, [role="listbox"], input, textarea`).forEach((n) => n.remove());
-  return ` ${norm(clone.textContent ?? '')} `;
+  // Each chip's text on its own: side-by-side chips ("Python" "SQL") mustn't read as "PythonSQL".
+  const texts: string[] = [];
+  const walk = document.createTreeWalker(clone, NodeFilter.SHOW_TEXT);
+  while (walk.nextNode()) texts.push(walk.currentNode.textContent ?? '');
+  return ` ${norm(texts.join(' '))} `;
 }
 
 /** The site said it has nothing for what we typed. */
@@ -553,64 +556,139 @@ function bestTag(labels: string[], item: string): number {
   return score >= 0.85 ? best : -1;
 }
 
+/**
+ * Type `query` into a tag box's search and wait for its options. [] = the site said "no
+ * results"; null = nothing showed. Workday-style prompts only search on Enter; on a box that
+ * takes free text, Enter adds `query` as a tag (reported in `typedIn`).
+ */
+async function searchTags(input: HTMLInputElement, box: HTMLElement, query: string): Promise<{ options: HTMLElement[] | null; typedIn: boolean }> {
+  realClick(input);
+  typeText(input, query);
+  const look = () => {
+    const o = visibleOptions(input);
+    return o.length ? o : noResults() ? [] : null;
+  };
+  // Skill lists are often searched on the server, so give them a while (but not after "No results").
+  let options = await waitFor(look, { timeout: 4000 });
+  if (options === null) {
+    pressKey(input, 'Enter');
+    options = await waitFor(look, { timeout: 3000 });
+    if (options === null && hasTag(box, query)) return { options: null, typedIn: true };
+  }
+  if (options?.length) {
+    await waitForSettle(250, 2000);
+    options = visibleOptions(input);
+  }
+  return { options, typedIn: false };
+}
+
+/**
+ * A tag box (skills): up to MAX_SKILLS of `items` (your skills, most relevant first).
+ * 1. Type each one and note what the site offers (nothing is picked yet).
+ * 2. One AI call picks which of those options to add (or, without AI, close matches).
+ * 3. Add the picks one by one. A box that takes any text just gets your skills typed in.
+ */
 async function fillTags(f: Field, items: string[]): Promise<WidgetResult> {
   const input = (f.el.tagName === 'INPUT' ? f.el : f.el.querySelector('input:not([type="hidden"])')) as HTMLInputElement | null;
   if (!input) return { ok: false, match: 0, reason: 'No box to type into' };
   const box = tagBox(input);
-  const list = items.slice(0, MAX_TAGS);
-  const added: string[] = [];
-  const missed: string[] = [];
   const clear = () => {
     if (input.value) setNativeValue(input, '');
     closeDropdown(input);
   };
-
-  for (const item of list) {
+  const stop = () => {
     if (isCancelled()) {
       clear();
       checkCancel();
     }
-    if (hasTag(box, item)) {
+  };
+  const added: string[] = items.filter((s) => hasTag(box, s));
+  const room = () => MAX_SKILLS - added.length;
+  const candidates = items.filter((s) => !added.includes(s)).slice(0, MAX_CANDIDATES);
+
+  // 1. What the site offers for each skill.
+  const seen: SkillSearch[] = [];
+  let freeText = 0;
+  for (const [n, item] of candidates.entries()) {
+    if (room() <= 0) break;
+    stop();
+    status(`${fieldName(f)}: looking up "${item}" (${n + 1} of ${candidates.length})…`);
+    const r = await searchTags(input, box, item);
+    if (r.typedIn) {
+      // A free-text box took it as a tag already: no list to look things up in, so just type the rest.
       added.push(item);
+      freeText++;
+      if (!seen.some((s) => s.options.length)) {
+        clear();
+        break;
+      }
+    } else {
+      seen.push({ query: item, options: Array.from(new Set((r.options ?? []).map((o) => cleanText(o)).filter(Boolean))).slice(0, 25) });
+    }
+    clear();
+    await sleep(150);
+  }
+
+  // 2. Which options to add.
+  let picks: SkillPick[] = [];
+  const offered = seen.filter((s) => s.options.length);
+  const pick = skillPicker();
+  if (offered.length && room() > 0 && pick) {
+    status(`${fieldName(f)}: choosing which skills to add…`);
+    picks = validPicks(await pick({ mine: items, seen: offered, max: room(), jd: knownJobText().slice(0, 3000) }).catch(() => null), offered, room());
+  }
+  if (!picks.length) {
+    for (const s of offered) {
+      const i = bestTag(s.options, s.query);
+      if (i >= 0 && !picks.some((p) => p.option === s.options[i])) picks.push({ query: s.query, option: s.options[i] });
+      if (picks.length >= room()) break;
+    }
+  }
+  // A box that offers nothing for anything but took one as a tag: type in the rest.
+  const typeIn = !offered.length && freeText ? candidates.filter((s) => !added.includes(s)).slice(0, room()) : [];
+
+  // 3. Add them.
+  const missed: string[] = [];
+  for (const p of picks) {
+    if (room() <= 0) break;
+    stop();
+    if (hasTag(box, p.option)) {
+      added.push(p.option);
       continue;
     }
-    status(`${fieldName(f)}: adding "${item}" (${added.length + missed.length + 1} of ${list.length})…`);
+    status(`${fieldName(f)}: adding "${p.option}" (${added.length + 1} of ${Math.min(MAX_SKILLS, added.length + picks.length)})…`);
+    const r = await searchTags(input, box, p.query);
+    const labels = (r.options ?? []).map((o) => cleanText(o));
+    let i = labels.findIndex((l) => l.toLowerCase() === p.option.toLowerCase());
+    if (i < 0) i = bestTag(labels, p.option);
+    if (i < 0) {
+      missed.push(p.option);
+      clear();
+      continue;
+    }
+    realClick(r.options![i]);
+    const stuck = await waitFor(() => hasTag(box, labels[i]), { timeout: 2000 });
+    if (stuck) added.push(labels[i]);
+    else missed.push(p.option);
+    clear();
+    await sleep(150);
+  }
+  for (const item of typeIn) {
+    stop();
+    status(`${fieldName(f)}: adding "${item}"…`);
     realClick(input);
     typeText(input, item);
-    // Skill lists are often searched on the server, so give them a while (but not after "No results").
-    let options = await waitFor(() => {
-      const o = visibleOptions(input);
-      return o.length ? o : noResults() ? [] : null;
-    }, { timeout: 6000 });
-    if (options && !options.length) options = null;
-    if (options) {
-      await waitForSettle(250, 2000);
-      options = visibleOptions(input);
-    }
-    const labels = (options ?? []).map((o) => cleanText(o));
-    const i = options ? bestTag(labels, item) : -1;
-    if (i < 0) {
-      missed.push(item);
-      clear();
-      await sleep(150);
-      continue;
-    }
-    realClick(options![i]);
-    const stuck = await waitFor(() => hasTag(box, labels[i]), { timeout: 2000 });
-    (stuck ? added : missed).push(stuck ? labels[i] : item);
-    if (!stuck) clear();
-    else if (input.value) setNativeValue(input, '');
+    pressKey(input, 'Enter');
+    if (await waitFor(() => hasTag(box, item), { timeout: 2000 })) added.push(item);
+    else missed.push(item);
+    clear();
     await sleep(150);
   }
   closeDropdown(input);
   if (!added.length) return { ok: false, match: 0, reason: "None of your skills are in the site's list" };
-  const rest = items.length > list.length ? ` (stopped at ${MAX_TAGS})` : '';
-  return {
-    ok: true,
-    value: added.join(', '),
-    match: missed.length ? 0.9 : 1,
-    reason: missed.length ? `Not in the site's list: ${missed.join(', ')}${rest}` : rest.trim() || undefined,
-  };
+  const notListed = seen.filter((s) => !s.options.length).map((s) => s.query);
+  const notes = [notListed.length ? `Not in the site's list: ${notListed.join(', ')}` : '', missed.length ? `Couldn't add: ${missed.join(', ')}` : ''].filter(Boolean);
+  return { ok: true, value: added.join(', '), match: 1, reason: notes.join('. ') || undefined };
 }
 
 // ---------- Address boxes with suggestions (Google Places) ----------

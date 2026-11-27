@@ -45,7 +45,8 @@ function captchaVisible(text: string): boolean {
 
 /** How many fields here ask for things an application asks (name, email, phone, resume…). */
 function applicationScore(): number {
-  const keys = new Set(['firstName', 'lastName', 'fullName', 'email', 'phone', 'resume', 'linkedin', 'address1', 'city', 'school', 'currentCompany']);
+  // Self-identification questions (Workday's "Voluntary Disclosures" page has nothing else) count too.
+  const keys = new Set(['firstName', 'lastName', 'fullName', 'email', 'phone', 'resume', 'linkedin', 'address1', 'city', 'school', 'currentCompany', 'gender', 'hispanic', 'ethnicity', 'veteran', 'disability']);
   let n = 0;
   for (const f of scanFields()) {
     if (f.kind === 'file') n++;
@@ -79,7 +80,9 @@ function probeKind(text: string, sig: string): Probe {
   // "Start with your email" pages (Oracle Cloud): one email box and a Next button, nothing to Apply to.
   const emailGate =
     score >= 1 && !!document.querySelector('input[type="email"], input[autocomplete="email"], input[name*="email" i], input[id*="email" i]') && !!(genericNext() || disabledNext()) && !applyButton();
-  const formy = fullForm || (!pw && (score >= 3 || (score >= 2 && (looksLikeForm() || !applyButton())) || emailGate));
+  // Inside an application wizard (Workday's apply flow), any page with questions is the application.
+  const inWizard = !pw && !!document.querySelector('[data-automation-id="applyFlowPage"]') && scanFields().some((f) => f.kind !== 'file');
+  const formy = fullForm || inWizard || (!pw && (score >= 3 || (score >= 2 && (looksLikeForm() || !applyButton())) || emailGate));
   if (!pw && !formy && VERIFY.test(text)) return { kind: 'verify', sig, detail: squash(VERIFY.exec(text)?.[0] ?? '') };
   if (pw && !fullForm) return { kind: 'account', sig };
   if (formy) return { kind: 'form', sig };

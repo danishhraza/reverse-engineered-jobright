@@ -9,6 +9,8 @@ export interface FillContext {
   handled: Set<string>;
   /** Adapter-produced report rows (e.g. repeatable sections). */
   extra: import('../types').FieldReport[];
+  /** The AI picks the closest option when the profile's answer isn't in a list ("Computer and Information Science"). */
+  aiPick?: (f: import('../engine/fields').Field, note: string) => Promise<import('../types').FieldReport | null>;
 }
 
 export interface Adapter {

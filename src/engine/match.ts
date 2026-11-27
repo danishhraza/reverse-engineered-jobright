@@ -13,6 +13,8 @@ export interface Desired {
   multi?: string[];
   /** What to type into a search-as-you-type dropdown, if different from `text`. */
   query?: string;
+  /** More searches to try (not answers themselves): "Computer" lists every computer-something major. */
+  searches?: string[];
 }
 
 export function norm(s: string): string {

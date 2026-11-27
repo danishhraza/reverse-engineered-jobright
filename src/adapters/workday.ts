@@ -3,8 +3,11 @@ import type { FieldReport } from '../types';
 import { byText, cleanText, isVisible, realClick, waitFor, waitForSettle } from '../engine/dom';
 import { eduResolver, fillEntryField, workResolver, type EntryResolver } from '../engine/entries';
 import { checkCancel, status } from '../engine/control';
-import { scanFields, type Field } from '../engine/fields';
+import { currentValue, scanFields, type Field } from '../engine/fields';
+import { norm } from '../engine/match';
 import { fillField } from '../engine/widgets';
+import { knownJobText } from '../engine/salary';
+import { MAX_CANDIDATES, rankSkills } from '../engine/skills';
 
 // Workday: multi-page wizard, repeatable "Work Experience N" / "Education N"
 // panels behind "Add" buttons, its own dropdowns and month/year date inputs.
@@ -66,7 +69,7 @@ async function fillOneInSection(ctx: FillContext, f: Field): Promise<FieldReport
     if (i < 0) return undefined;
     const entry = entries[i];
     if (!entry) return { id: f.id, label: `${name} ${i + 1}: ${f.label}`, status: 'flagged', confidence: 0, reason: `Your profile has only ${entries.length} ${name.toLowerCase()} entries` };
-    return fillEntryField(f, `${name} ${i + 1}`, entry as never, resolver as EntryResolver<unknown>, ctx.overwrite);
+    return fillEntryField(f, `${name} ${i + 1}`, entry as never, resolver as EntryResolver<unknown>, ctx.overwrite, undefined, ctx.aiPick);
   }
   if (sectionContainer(/^skills$/i)?.contains(f.el)) {
     await fillSkills(ctx);
@@ -102,8 +105,23 @@ async function fillRepeatable<T>(ctx: FillContext, title: RegExp, name: string, 
       checkCancel();
       ctx.handled.add(f.id);
       status(`Workday: ${name} ${i + 1} — ${f.label || 'field'}…`);
-      const r = await fillEntryField(f, `${name} ${i + 1}`, entries[i], resolver, ctx.overwrite);
+      const r = await fillEntryField(f, `${name} ${i + 1}`, entries[i], resolver, ctx.overwrite, undefined, ctx.aiPick);
       if (r) ctx.extra.push(r);
+    }
+  }
+  // Workday reads your resume in the background and can rewrite these boxes after we filled them
+  // (a job title of "Azure…" from a bullet point): check the typed ones and put yours back.
+  await waitForSettle(800, 4000);
+  const filled = panels(container, title);
+  for (let i = 0; i < Math.min(filled.length, entries.length); i++) {
+    for (const f of scanFields({ root: filled[i] })) {
+      if (f.kind !== 'text') continue;
+      const d = resolver(f, norm(f.label), entries[i]);
+      if (!d || typeof d !== 'object' || !d.text || norm(currentValue(f)) === norm(d.text)) continue;
+      checkCancel();
+      status(`Workday: ${name} ${i + 1} — putting back ${f.label || 'a field'}…`);
+      const r = await fillEntryField(f, `${name} ${i + 1}`, entries[i], resolver, true);
+      if (r) ctx.extra.push({ ...r, reason: 'Put back what Workday changed after filling' });
     }
   }
   // Leave the generic pass out of these sections entirely.
@@ -116,20 +134,19 @@ async function fillSkills(ctx: FillContext): Promise<void> {
   const field = scanFields({ root: container }).find((f) => f.kind === 'combobox' || f.kind === 'text');
   if (!field) return;
   ctx.handled.add(field.id);
-  const picked: string[] = [];
-  for (const skill of ctx.profile.skills.slice(0, 15)) {
-    checkCancel();
-    status(`Workday: adding skill "${skill}"…`);
-    const r = await fillField({ ...field, kind: 'combobox' }, { text: skill }, true);
-    if (r.ok && r.match >= 0.85) picked.push(skill);
-  }
+  // Your skills, the job's first: looked up in Workday's list, the best (up to 10) picked by the AI, then added.
+  const ranked = rankSkills(ctx.profile.skills, knownJobText());
+  if (!ranked.length) return;
+  checkCancel();
+  status('Workday: adding skills…');
+  const r = await fillField({ ...field, kind: 'combobox' }, { text: ranked[0], multi: ranked.slice(0, MAX_CANDIDATES) }, true);
   ctx.extra.push({
     id: field.id,
     label: 'Skills',
-    status: picked.length ? 'filled' : 'flagged',
-    confidence: picked.length ? 0.85 : 0,
-    value: picked.join(', '),
-    reason: picked.length ? undefined : 'No skills matched Workday’s list',
+    status: r.ok ? 'filled' : 'flagged',
+    confidence: r.ok ? 0.9 : 0,
+    value: r.value,
+    reason: r.ok ? r.reason : (r.reason ?? 'No skills matched Workday’s list'),
   });
 }
 
@@ -148,6 +165,8 @@ export const workday: Adapter = {
         /successfully uploaded/i.test(document.body.textContent ?? ''),
       { timeout: 30000, interval: 300 },
     );
+    // Workday then reads the resume and fills sections from it: let that finish before we fill.
+    if (ok) await waitForSettle(1000, 8000);
     return !!ok;
   },
   async fillSpecial(ctx) {

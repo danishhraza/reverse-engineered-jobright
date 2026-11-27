@@ -49,5 +49,10 @@ function aiFor(profile: Profile): AiAsk {
   };
   // What the fill did with the answer, for the job's AI log.
   ask.decided = (question, decision) => void chrome.runtime.sendMessage({ type: 'aiDecided', question, decision }).catch(() => {});
+  // Which options a skills box offered to add: one call for the whole box.
+  ask.pickSkills = async (req) => {
+    const r: { picks?: { query: string; option: string }[]; error?: string } | undefined = await chrome.runtime.sendMessage({ type: 'aiSkills', req });
+    return r?.picks ?? null;
+  };
   return ask;
 }

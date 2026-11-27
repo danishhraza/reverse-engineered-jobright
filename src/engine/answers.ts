@@ -1,7 +1,8 @@
 import type { Answer, Education, Profile, Work } from '../types';
 import { currentValue, type Field } from './fields';
 import { norm, patternMatches, type Desired } from './match';
-import { pickSalaryOption, rangeText, salaryPlan, wantsSingle } from './salary';
+import { knownJobText, pickSalaryOption, rangeText, salaryPlan, wantsSingle } from './salary';
+import { MAX_CANDIDATES, rankSkills } from './skills';
 
 // Classification (question text -> profile key) and resolution (key -> answer).
 
@@ -180,6 +181,25 @@ const COUNTRY_CODES: [RegExp, string][] = [
   [/\beuropean union\b|\beu\b|\beea\b/, 'EU'],
   [/\b(united states|u s|us|usa|america|american)\b/, 'US'],
 ];
+
+/** A field of study as option lists often word it ("Computer Science" -> "Computer and Information Science"). */
+export function majorAlts(major: string): string[] {
+  const m = norm(major);
+  const alts: string[] = [];
+  if (/^computer science/.test(m)) alts.push('Computer and Information Science', 'Computer and Information Sciences', 'Computer Science and Engineering', 'Computer Engineering', 'Computing');
+  if (/^(software engineering)/.test(m)) alts.push('Computer Science', 'Computer Engineering');
+  if (/^(information technology)/.test(m)) alts.push('Information Systems', 'Computer and Information Science');
+  if (/^(electrical engineering)/.test(m)) alts.push('Electrical and Electronics Engineering', 'Electrical and Computer Engineering');
+  if (/^(business administration)/.test(m)) alts.push('Business', 'Business Administration and Management', 'Business/Commerce');
+  if (/^(data science)/.test(m)) alts.push('Statistics', 'Computer Science');
+  return alts;
+}
+
+/** A broad first word to search a long list with ("Computer Science" -> "Computer"). */
+export function majorSearches(major: string): string[] {
+  const words = major.split(/\s+/).filter((w) => w.length >= 4 && !/^(and|of|the|with)$/i.test(w));
+  return words.length > 1 ? [words[0]] : [];
+}
 
 export function degreeAlts(degree: string, short?: string): string[] {
   const d = norm(degree);
@@ -495,8 +515,11 @@ export function resolve(c: Classification, p: Profile, field: Field): Resolution
     case 'gradYear':
       return edu?.end ? t(String(edu.end.year), edu.end.month ? [`${pad(edu.end.month)}/${edu.end.year}`] : []) : { flag: 'No graduation date' };
     case 'skills':
-      // Tag-style pickers add these one at a time; plain text boxes get the joined list.
-      return p.skills.length ? { desired: { text: p.skills.slice(0, 25).join(', '), multi: p.skills.slice(0, 25) } } : { flag: 'No skills in your profile' };
+      // The ones this job asks for first. Tag-style pickers add up to 10; plain text boxes get the list.
+      {
+        const ranked = rankSkills(p.skills, knownJobText());
+        return ranked.length ? { desired: { text: ranked.slice(0, 25).join(', '), multi: ranked.slice(0, MAX_CANDIDATES) } } : { flag: 'No skills in your profile' };
+      }
     case 'additionalInfo':
       return p.preferences.additionalInfo ? t(p.preferences.additionalInfo) : { skip: 'Nothing to add' };
     case 'summary':

@@ -3,7 +3,8 @@ import { getPending, getSettings, setPending } from './profile/storage';
 import { importSeed } from './profile/seed';
 import type { AiQuestion } from './engine/fill';
 import { norm } from './engine/match';
-import { askGuide, askModel } from './llm/openrouter';
+import { askGuide, askModel, askSkills } from './llm/openrouter';
+import type { SkillPickRequest } from './engine/skills';
 import { getAiAnswers, getLlm, saveAiAnswer } from './queue/store';
 import { aiDecided, noteOnJob, onAlarm, pasteAnswers, recordFill, onPageLoaded, onReadyResult, onStepResult, recordAi, onTabCreated, onTabRemoved, pauseRunner, queueAction, recover, startRunner, type QueueAction } from './queue/runner';
 
@@ -254,6 +255,28 @@ chrome.runtime.onMessage.addListener((msg, sender, reply) => {
   }
   if (msg.type === 'aiAsk') {
     answerQuestion(msg.q, msg.facts, msg.job, sender.tab?.id).then(reply);
+    return true;
+  }
+  if (msg.type === 'aiSkills') {
+    const tabId = sender.tab?.id;
+    (async () => {
+      const llm = await getLlm();
+      if (!llm.enabled || !llm.apiKey) return reply({ error: 'AI answers are off (no OpenRouter key)' });
+      const req = msg.req as SkillPickRequest;
+      const { picks, usage } = await askSkills(llm, req);
+      const options: string[] = req.seen.flatMap((s) => s.options);
+      if (tabId !== undefined) {
+        await recordAi(tabId, {
+          what: `Which skills to add (up to ${req.max})`,
+          result: picks ? picks.map((p) => p.option).join(', ') : 'no usable answer',
+          usage,
+          options,
+          answer: picks ? picks.map((p) => p.option).join(', ') : undefined,
+          decision: picks?.length ? `Adding ${picks.length}` : 'None picked — close matches used instead',
+        });
+      }
+      reply({ picks });
+    })().catch((e) => reply({ error: (e as Error).message }));
     return true;
   }
   if (msg.type === 'aiGuide') {

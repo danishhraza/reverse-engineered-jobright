@@ -9,6 +9,7 @@ import { entryFor, fillEntryForms, fillSections } from './sections';
 import { fillField, MIN_MATCH, peekOptions } from './widgets';
 import { isPlaceholderOption, norm, type Desired } from './match';
 import { salaryPlan } from './salary';
+import type { SkillPicker } from './skills';
 
 // The page-level fill loop: upload the resume first (sites re-parse it and
 // overwrite fields), then fill every field, retrying each a few times, and
@@ -51,6 +52,8 @@ export interface AiAnswer {
 export type AiAsk = ((q: AiQuestion) => Promise<AiAnswer | null>) & {
   /** What was done with the AI's answer ("Filled", "Only suggested…"), for the job's AI log. */
   decided?: (question: string, decision: string) => void;
+  /** Which of the options a skills box offered to add (one call per box). */
+  pickSkills?: SkillPicker;
 };
 
 /** Below this, fill nothing and ask the human. Between this and AUTO_OK, fill but ask the human to check. */
@@ -63,7 +66,7 @@ const LATE_FIELDS_MS = 5000;
 export async function fillPage(opts: PageFillOptions): Promise<FieldReport[]> {
   const { profile, adapter } = opts;
   const rows: FieldReport[] = [];
-  const ctx: FillContext = { profile, resume: opts.resume, overwrite: opts.overwrite, handled: new Set(), extra: [] };
+  const ctx: FillContext = { profile, resume: opts.resume, overwrite: opts.overwrite, handled: new Set(), extra: [], aiPick: (f, note) => aiFill(f, opts, note) };
   const emit = () => opts.onProgress?.([...ctx.extra, ...rows]);
 
   // Some ATSs (SuccessFactors) are still rendering sections when we start.
@@ -168,7 +171,7 @@ export async function fillSingle(f: Field, opts: PageFillOptions): Promise<Field
     return uploadTo(f, { ...o, forceUpload: true }); // you clicked it: upload even if it went in before
   }
   if (opts.adapter.fillOne) {
-    const ctx: FillContext = { profile: opts.profile, resume: opts.resume, overwrite: true, handled: new Set(), extra: [] };
+    const ctx: FillContext = { profile: opts.profile, resume: opts.resume, overwrite: true, handled: new Set(), extra: [], aiPick: (f, note) => aiFill(f, o, note) };
     const r = await opts.adapter.fillOne(ctx, f);
     if (r !== undefined) return r;
   }

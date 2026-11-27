@@ -4,6 +4,7 @@ import { begin, Cancelled, checkCancel, end, status } from './control';
 import { cleanText, isVisible, realClick, sleep, waitFor, waitForSettle } from './dom';
 import { currentValue, fieldFor, findById, scanFields } from './fields';
 import { fillPage, fillSingle, type AiAsk } from './fill';
+import { setSkillPicker } from './skills';
 import { disabledNext, genericFinal, genericNext, genericSignature } from './nav';
 import { findBlocker, markTried } from '../content/blockers';
 
@@ -53,6 +54,7 @@ export async function run(opts: RunOptions): Promise<FillReport> {
   const adapter = pickAdapter();
   let report: FillReport = { url: location.href, ats: adapter.name, page: 1, fields: [], done: false };
   let rows: FieldReport[] = [];
+  setSkillPicker(opts.ai?.pickSkills);
   begin((current) => opts.onReport({ ...report, fields: rows, current }));
   try {
     for (let page = opts.startPage ?? 1; page <= MAX_PAGES; page++) {
@@ -164,6 +166,7 @@ export async function runSingle(opts: Omit<RunOptions, 'autoAdvance' | 'overwrit
   ensureStyles();
   const adapter = pickAdapter();
   const report: FillReport = { url: location.href, ats: adapter.name, page: 1, fields: [], done: true };
+  setSkillPicker(opts.ai?.pickSkills);
   begin((current) => opts.onReport({ ...report, done: false, current }));
   try {
     const field = fieldFor(target);

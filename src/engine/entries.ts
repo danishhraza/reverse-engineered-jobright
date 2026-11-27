@@ -1,5 +1,5 @@
 import type { Education, FieldReport, Work, YearMonth } from '../types';
-import { describeJob, degreeAlts } from './answers';
+import { describeJob, degreeAlts, majorAlts, majorSearches } from './answers';
 import { waitForSettle } from './dom';
 import { currentValue, type Field } from './fields';
 import { norm, type Desired } from './match';
@@ -112,7 +112,7 @@ export const eduResolver: EntryResolver<Education> = (f, label, e) => {
   if (asksCurrent(f, label)) return yesNo(stillGoing(e));
   if (/school|university|college|institution/.test(label) && !/city|state|country|location/.test(label)) return { text: e.school };
   if (/degree|diploma/.test(label)) return { text: e.degree, alts: degreeAlts(e.degree, e.degreeShort) };
-  if (/field of study|major|discipline|concentration|area of study/.test(label)) return { text: e.major };
+  if (/field of study|major|discipline|concentration|area of study/.test(label)) return e.major ? { text: e.major, alts: majorAlts(e.major), searches: majorSearches(e.major) } : 'skip';
   if (/gpa|overall result|grade/.test(label)) return e.gpa ? { text: e.gpa } : 'skip';
   // The school's address and phone: not in the profile, and never yours.
   if (/phone|telephone|e-?mail|address|street|\bzip\b|postal|post ?code|\bcounty\b/.test(label)) return blank(f);

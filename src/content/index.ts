@@ -241,6 +241,65 @@ function updateFab(r: FillReport): void {
   setFab(flagged ? 'warn' : 'done', flagged ? `${flagged} need you` : 'Done');
 }
 
+/**
+ * Drag the floating button anywhere; it stays there on every site (kept as a distance from the
+ * bottom-right corner, so it follows window resizes). A press that barely moves is still a click.
+ */
+function makeDraggable(host: HTMLElement, btn: HTMLElement): void {
+  const MARGIN = 6;
+  const place = (right: number, bottom: number) => {
+    const r = host.getBoundingClientRect();
+    const maxRight = Math.max(MARGIN, window.innerWidth - r.width - MARGIN);
+    const maxBottom = Math.max(MARGIN, window.innerHeight - r.height - MARGIN);
+    const x = Math.min(maxRight, Math.max(MARGIN, right));
+    const y = Math.min(maxBottom, Math.max(MARGIN, bottom));
+    host.style.right = `${x}px`;
+    host.style.bottom = `${y}px`;
+    return { right: x, bottom: y };
+  };
+  chrome.storage.local
+    .get('fabPos')
+    .then(({ fabPos }) => {
+      const p = fabPos as { right: number; bottom: number } | undefined;
+      if (p && Number.isFinite(p.right) && Number.isFinite(p.bottom)) place(p.right, p.bottom);
+    })
+    .catch(() => {});
+
+  btn.addEventListener('pointerdown', (e: PointerEvent) => {
+    if (e.button !== 0) return;
+    const start = { x: e.clientX, y: e.clientY, right: parseFloat(host.style.right) || 18, bottom: parseFloat(host.style.bottom) || 18 };
+    let moved = false;
+    let last = { right: start.right, bottom: start.bottom };
+    const move = (ev: PointerEvent) => {
+      const dx = ev.clientX - start.x;
+      const dy = ev.clientY - start.y;
+      if (!moved && Math.hypot(dx, dy) < 5) return;
+      if (!moved) {
+        moved = true;
+        btn.style.cursor = 'grabbing';
+      }
+      ev.preventDefault();
+      last = place(start.right - dx, start.bottom - dy);
+    };
+    // On the window: a quick drag leaves the button before the first move arrives.
+    const up = () => {
+      window.removeEventListener('pointermove', move, true);
+      window.removeEventListener('pointerup', up, true);
+      window.removeEventListener('pointercancel', up, true);
+      btn.style.cursor = '';
+      if (!moved) return;
+      btn.dataset.dragged = '1'; // the click that follows is the drop
+      setTimeout(() => delete btn.dataset.dragged, 300);
+      void chrome.storage.local.set({ fabPos: last }).catch(() => {});
+    };
+    window.addEventListener('pointermove', move, true);
+    window.addEventListener('pointerup', up, true);
+    window.addEventListener('pointercancel', up, true);
+  });
+  // Keep it on screen when the window shrinks.
+  window.addEventListener('resize', () => place(parseFloat(host.style.right) || 18, parseFloat(host.style.bottom) || 18));
+}
+
 async function mountFab(): Promise<void> {
   if (window !== window.top || fab) return;
   const settings = await getSettings();
@@ -255,7 +314,7 @@ async function mountFab(): Promise<void> {
   const shadow = host.attachShadow({ mode: 'open' });
   shadow.innerHTML = `
     <style>
-      button { all: unset; cursor: pointer; display: flex; align-items: center; gap: 8px; padding: 10px 14px;
+      button { all: unset; cursor: pointer; touch-action: none; user-select: none; display: flex; align-items: center; gap: 8px; padding: 10px 14px;
         border-radius: 999px; font: 600 13px/1 system-ui, sans-serif; color: #fff; background: #111827;
         box-shadow: 0 6px 20px rgba(0,0,0,.25); transition: transform .15s; }
       button:hover { transform: translateY(-1px); }
@@ -275,15 +334,21 @@ async function mountFab(): Promise<void> {
       button[data-ask] .dot, button[data-ask] .t, button[data-ask] .x, button[data-ask] .stop { display: none !important; }
       @keyframes p { 50% { opacity: .3; } }
     </style>
-    <button part="b" data-state="idle"><span class="dot"></span><span class="t">Autofill</span><span class="stop" title="Stop autofill">■ Stop</span><span class="x" title="Hide">✕</span><span class="ask"><span class="now">Hide for now</span><span class="never"></span></span></button>`;
+    <button part="b" data-state="idle" title="Click to fill this page, or drag to move"><span class="dot"></span><span class="t">Autofill</span><span class="stop" title="Stop autofill">■ Stop</span><span class="x" title="Hide">✕</span><span class="ask"><span class="now">Hide for now</span><span class="never"></span></span></button>`;
   const btn = shadow.querySelector('button')!;
   const label = shadow.querySelector('.t') as HTMLElement;
   fab = { root: btn, label };
   // "✕" asks: hide it just for now, or never show it on this site again.
   const site = location.hostname.replace(/^www\./, '');
   shadow.querySelector('.never')!.textContent = `Never on ${site}`;
+  makeDraggable(host, btn);
   btn.addEventListener('click', async (e) => {
     const t = e.target as HTMLElement;
+    if (btn.dataset.dragged) {
+      // That was the end of a drag, not a click.
+      delete btn.dataset.dragged;
+      return;
+    }
     if (t.classList.contains('stop')) {
       setFab('busy', 'Stopping…');
       send({ type: 'cancelTab' });

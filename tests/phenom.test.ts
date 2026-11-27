@@ -73,19 +73,29 @@ describe('Phenom option lists', () => {
     expect(m.score).toBe(1);
   });
 
-  it("Field of Study: when there's no \"Computer Science\", the AI picks the closest option", async () => {
+  it('Field of Study: "Computer Science" finds "Computer and Information Science" without asking the AI', async () => {
     document.body.innerHTML = `<label for="fos">Field of Study *</label><select id="fos" required>
-      <option>Please Select</option><option>Computer Engineering</option><option>Computer and Information Science</option><option>Software Engineering</option></select>`;
+      <option>Please Select</option><option>Computer Engineering Technology</option><option>Computer and Information Science</option><option>Software Engineering</option></select>`;
+    const f = scanFields()[0];
+    const aiPick = vi.fn();
+    const r = await fillEntryField(f, 'Education 1', { school: 'Example University', degree: 'Master of Science', major: 'Computer Science' }, eduResolver, true, undefined, aiPick);
+    expect(aiPick).not.toHaveBeenCalled();
+    expect(r).toMatchObject({ status: 'filled', label: 'Education 1: Field of Study', value: 'Computer and Information Science' });
+  });
+
+  it("Field of Study: when nothing close is listed, the AI picks the closest option", async () => {
+    document.body.innerHTML = `<label for="fos">Field of Study *</label><select id="fos" required>
+      <option>Please Select</option><option>Biology</option><option>Informatics</option><option>Physics</option></select>`;
     const f = scanFields()[0];
     const notes: string[] = [];
     const aiPick = async (field: typeof f, note: string): Promise<FieldReport> => {
       notes.push(note);
-      (field.el as HTMLSelectElement).value = 'Computer and Information Science';
-      return { id: field.id, label: field.label, status: 'filled', confidence: 0.9, value: 'Computer and Information Science', reason: 'Answered by AI — check it' };
+      (field.el as HTMLSelectElement).value = 'Informatics';
+      return { id: field.id, label: field.label, status: 'filled', confidence: 0.9, value: 'Informatics', reason: 'Answered by AI — check it' };
     };
-    const r = await fillEntryField(f, 'Education 1', { school: 'Georgia Tech', degree: 'Master of Science', major: 'Computer Science' }, eduResolver, true, undefined, aiPick);
+    const r = await fillEntryField(f, 'Education 1', { school: 'Example University', degree: 'Master of Science', major: 'Computer Science' }, eduResolver, true, undefined, aiPick);
     expect(notes[0]).toMatch(/Education 1.*"Computer Science"/);
-    expect(r).toMatchObject({ status: 'filled', label: 'Education 1: Field of Study', value: 'Computer and Information Science' });
+    expect(r).toMatchObject({ status: 'filled', label: 'Education 1: Field of Study', value: 'Informatics' });
   });
 });
 
